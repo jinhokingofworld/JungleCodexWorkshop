@@ -1,4 +1,7 @@
-process.env.ALPHA_VANTAGE_API_KEY = "";
+process.env.LLM_PROVIDER = "mock";
+process.env.LLM_MODEL = "mock-debate-v1";
+process.env.LLM_API_KEY = "";
+process.env.TWELVE_DATA_API_KEY = "";
 process.env.NAVER_CLIENT_ID = "";
 process.env.NAVER_CLIENT_SECRET = "";
 process.env.OPEN_DART_API_KEY = "";

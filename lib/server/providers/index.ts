@@ -1,9 +1,9 @@
 import { findSymbol } from "@/lib/mock-data";
 import type { EvidenceBundle, EvidenceItem, Market } from "@/lib/types";
-import { fetchAlphaVantageEvidence } from "@/lib/server/providers/alpha-vantage";
 import { fetchDartEvidence } from "@/lib/server/providers/dart";
 import { fetchKisEvidence } from "@/lib/server/providers/kis";
 import { fetchNaverNewsEvidence } from "@/lib/server/providers/naver";
+import { fetchTwelveDataEvidence } from "@/lib/server/providers/twelve-data";
 import { logApiEvent } from "@/lib/server/logging";
 
 function mergeLiveMarketSnapshot(
@@ -43,7 +43,7 @@ function makeFallbackEvidence(market: Market, symbol: string): EvidenceItem[] {
   return [
     {
       id: `fallback-price-${profile.symbol.toLowerCase()}`,
-      source: profile.market === "KR" ? "KIS" : "AlphaVantage",
+      source: profile.market === "KR" ? "KIS" : "TwelveData",
       kind: "price",
       title: `${profile.name} ${prefix} 시세 스냅샷`,
       url: null,
@@ -91,7 +91,7 @@ export async function buildEvidenceBundle(
   const [marketEvidence, newsEvidence, filingEvidence] = await Promise.all([
     market === "KR"
       ? fetchKisEvidence(profile)
-      : fetchAlphaVantageEvidence(profile),
+      : fetchTwelveDataEvidence(profile),
     fetchNaverNewsEvidence(profile),
     fetchDartEvidence(profile)
   ]);

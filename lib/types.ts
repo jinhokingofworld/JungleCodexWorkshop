@@ -41,7 +41,7 @@ export interface MarketOverview {
 
 export interface EvidenceItem {
   id: string;
-  source: "KIS" | "AlphaVantage" | "NAVER" | "DART" | "MockMacro";
+  source: "KIS" | "TwelveData" | "NAVER" | "DART" | "MockMacro";
   kind: EvidenceKind;
   title: string;
   url: string | null;

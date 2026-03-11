@@ -3,19 +3,20 @@ import { SearchBox } from "@/components/search-box";
 import { SessionCard } from "@/components/session-card";
 import { prepareHomeData } from "@/lib/server/analysis-service";
 import {
-  buildMarketOverviewMap,
-  listLiveSymbolProfiles
-} from "@/lib/server/market-data";
+  buildHomeMarketOverviewMap,
+  loadHomeStocksFromDb
+} from "@/lib/server/home-stocks";
 import { formatCompactNumber, formatPrice, symbolPath } from "@/lib/server/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [{ popular, recent }, marketOverviews, liveSymbols] = await Promise.all([
+  const [{ popular, recent }, homeStocks] = await Promise.all([
     prepareHomeData(),
-    buildMarketOverviewMap(),
-    listLiveSymbolProfiles()
+    loadHomeStocksFromDb()
   ]);
+  const marketOverviews = buildHomeMarketOverviewMap(homeStocks);
+  const liveSymbols = homeStocks;
 
   return (
     <div className="container page-stack">

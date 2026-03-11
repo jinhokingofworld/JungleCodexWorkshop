@@ -14,6 +14,6 @@ describe("evidence bundle", () => {
     const bundle = await buildEvidenceBundle("US", "TSLA");
 
     expect(bundle.symbol.name).toBe("Tesla");
-    expect(bundle.items.some((item) => item.source === "AlphaVantage")).toBe(true);
+    expect(bundle.items.some((item) => item.source === "TwelveData")).toBe(true);
   });
 });
