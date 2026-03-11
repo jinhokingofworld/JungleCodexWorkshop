@@ -8,9 +8,60 @@ export type ExpertRole =
   | "host"
   | "krAnalyst"
   | "globalAnalyst"
-  | "macroEconomist";
+  | "macroEconomist"
+  | "technicalAnalyst"
+  | "valueAnalyst"
+  | "riskManager"
+  | "sectorSpecialist";
 
 export type Sentiment = "bullish" | "neutral" | "bearish";
+
+export type PersonaKind = "preset" | "custom";
+
+export type PersonaCreationMode = "onboarding" | "direct";
+
+export interface PersonaVisualTone {
+  accent: string;
+  background: string;
+}
+
+export interface PersonaOnboardingDraft {
+  id?: string;
+  name: string;
+  shortDescription: string;
+  roleFocus: string;
+  focusAreas: string[];
+  riskProfile: "aggressive" | "balanced" | "conservative";
+  timeHorizon: "shortTerm" | "swing" | "longTerm";
+  debateStyle: "assertive" | "careful" | "challenger";
+  voiceStyle: "expert" | "auditor" | "coach" | "challenger";
+  speechRule: "numbersFirst" | "evidenceFirst" | "counterFirst" | "conclusionFirst";
+  generatedPrompt?: string;
+}
+
+export interface PersonaDefinition {
+  id: string;
+  kind: PersonaKind;
+  name: string;
+  shortDescription: string;
+  systemPrompt: string;
+  visualTone: PersonaVisualTone;
+  presetRole?: ExpertRole;
+  createdAt?: string;
+  updatedAt?: string;
+  creationMode?: PersonaCreationMode;
+  onboardingSelections?: PersonaOnboardingDraft;
+}
+
+export interface SelectedPersona {
+  id: string;
+  kind: PersonaKind;
+  name: string;
+  shortDescription: string;
+  systemPrompt: string;
+  visualTone: PersonaVisualTone;
+  presetRole?: ExpertRole;
+}
 
 export interface SymbolProfile {
   market: Market;
@@ -57,7 +108,7 @@ export interface EvidenceBundle {
 
 export interface DebateMessage {
   id: string;
-  role: ExpertRole;
+  speakerPersonaId: string;
   turn: number;
   speaker: string;
   text: string;
@@ -101,6 +152,7 @@ export interface AnalysisSession {
   replayCount: number;
   boardScore: number;
   optionalQuestion?: string;
+  personas: SelectedPersona[];
   evidence: EvidenceItem[];
   messages: DebateMessage[];
   timingCard: TimingCard;
@@ -116,6 +168,7 @@ export interface AnalysisSession {
 export interface CreateAnalysisInput {
   market: Market;
   symbol: string;
+  personas?: SelectedPersona[];
   userQuestion?: string;
   forceFresh?: boolean;
 }

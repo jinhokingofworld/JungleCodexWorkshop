@@ -1,3 +1,4 @@
+import { getPresetPersonaById } from "@/lib/personas";
 import type { ExpertRole, Market, Sentiment, SymbolProfile } from "@/lib/types";
 
 export function sleep(ms: number) {
@@ -20,29 +21,11 @@ export function formatCompactNumber(value: number) {
 }
 
 export function roleLabel(role: ExpertRole) {
-  switch (role) {
-    case "host":
-      return "진행자";
-    case "krAnalyst":
-      return "한국투자전문가";
-    case "globalAnalyst":
-      return "글로벌 투자전문가";
-    case "macroEconomist":
-      return "경제학자";
-  }
+  return getPresetPersonaById(`preset-${role}`)?.name ?? role;
 }
 
 export function roleAccent(role: ExpertRole) {
-  switch (role) {
-    case "host":
-      return "#1e293b";
-    case "krAnalyst":
-      return "#2563eb";
-    case "globalAnalyst":
-      return "#0f766e";
-    case "macroEconomist":
-      return "#b45309";
-  }
+  return getPresetPersonaById(`preset-${role}`)?.visualTone.accent ?? "#334155";
 }
 
 export function stanceLabel(stance: Sentiment) {

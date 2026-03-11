@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sanitizePersonaSelection } from "@/lib/personas";
 import { createNewAnalysis } from "@/lib/server/analysis-service";
 import { evaluateGuard, recordGuardEvent } from "@/lib/server/guards";
 import type { CreateAnalysisInput } from "@/lib/types";
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
     const session = await createNewAnalysis({
       market: payload.market,
       symbol: payload.symbol,
+      personas: payload.personas ? sanitizePersonaSelection(payload.personas) : undefined,
       userQuestion: payload.userQuestion,
       forceFresh: payload.forceFresh ?? true
     });

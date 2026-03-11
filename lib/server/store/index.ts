@@ -1,8 +1,14 @@
 import type {
   AnalysisSession,
   CreateAnalysisInput,
+  SelectedPersona,
   SessionPreview
 } from "@/lib/types";
+import {
+  getDefaultSelectedPersonas,
+  sanitizePersonaSelection,
+  validateSelectedPersonas
+} from "@/lib/personas";
 import { buildEvidenceBundle } from "@/lib/server/providers";
 import { generateStructuredAnalysis } from "@/lib/server/llm/provider";
 import { findSymbol, symbolCatalog } from "@/lib/mock-data";
@@ -51,7 +57,8 @@ class MemoryAnalysisStore implements AnalysisStore {
 
   async createSession(input: CreateAnalysisInput) {
     const bundle = await buildEvidenceBundle(input.market, input.symbol);
-    const generated = await generateStructuredAnalysis(bundle, input.userQuestion);
+    const personas = resolvePersonas(input.market, input.personas);
+    const generated = await generateStructuredAnalysis(bundle, personas, input.userQuestion);
     const id = `${input.market.toLowerCase()}-${input.symbol.toLowerCase()}-${Date.now()}`;
 
     const boardScore =
@@ -68,6 +75,7 @@ class MemoryAnalysisStore implements AnalysisStore {
       replayCount: 0,
       boardScore,
       optionalQuestion: input.userQuestion,
+      personas,
       evidence: bundle.items,
       messages: generated.messages,
       timingCard: generated.timingCard,
@@ -133,6 +141,7 @@ class MemoryAnalysisStore implements AnalysisStore {
       const session = await this.createSession({
         market: profile.market,
         symbol: profile.symbol,
+        personas: getDefaultSelectedPersonas(profile.market),
         forceFresh: true
       });
 
@@ -174,6 +183,12 @@ export async function createAnalysisSession(input: CreateAnalysisInput) {
   }
 
   return analysisStore.createSession(input);
+}
+
+function resolvePersonas(market: CreateAnalysisInput["market"], personas?: SelectedPersona[]) {
+  const resolved = sanitizePersonaSelection(personas ?? getDefaultSelectedPersonas(market));
+  validateSelectedPersonas(resolved);
+  return resolved;
 }
 
 export async function listRecentSessions(limit?: number) {

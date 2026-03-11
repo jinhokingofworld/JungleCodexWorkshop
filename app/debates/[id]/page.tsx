@@ -31,6 +31,7 @@ export default async function DebateDetailPage({
         </section>
 
         <AnalysisRoom
+          allowPersonaEditing={false}
           initialSession={session}
           market={session.market}
           symbol={session.symbol}

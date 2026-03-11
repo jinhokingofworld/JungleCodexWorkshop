@@ -263,6 +263,12 @@ input {
   letter-spacing: -0.04em;
 }
 
+.analysis-toolbar {
+  display: grid;
+  justify-items: end;
+  gap: 14px;
+}
+
 .section-grid.two-up,
 .analysis-layout {
   display: grid;
@@ -512,6 +518,210 @@ input {
   color: white;
 }
 
+.persona-badge-row,
+.persona-card-actions,
+.persona-choice-grid,
+.persona-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.persona-chip,
+.persona-choice,
+.persona-tabs button {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+.persona-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.persona-chip.static {
+  cursor: default;
+}
+
+.persona-chip.active {
+  background: rgba(49, 130, 246, 0.08);
+}
+
+.persona-chip-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.persona-empty-state {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  background: rgba(49, 130, 246, 0.06);
+}
+
+.persona-empty-state p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.persona-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(8px);
+}
+
+.persona-modal {
+  width: min(720px, 100vw);
+  height: 100vh;
+  overflow: auto;
+  padding: 24px;
+  background: rgba(248, 250, 252, 0.98);
+  border-left: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: -12px 0 48px rgba(15, 23, 42, 0.16);
+}
+
+.persona-close {
+  min-width: 88px;
+}
+
+.persona-selected-strip,
+.persona-composer {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.persona-tabs {
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.persona-tabs button,
+.persona-choice {
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+}
+
+.persona-tabs button.active,
+.persona-choice.selected {
+  background: rgba(49, 130, 246, 0.1);
+  color: var(--blue);
+  border-color: rgba(49, 130, 246, 0.28);
+}
+
+.persona-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.persona-card {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  text-align: left;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.persona-card.selected {
+  border-color: rgba(49, 130, 246, 0.36);
+  box-shadow: 0 12px 32px rgba(49, 130, 246, 0.12);
+}
+
+.persona-card p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.persona-form-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.persona-field {
+  display: grid;
+  gap: 8px;
+}
+
+.persona-field span {
+  font-weight: 700;
+}
+
+.persona-field input,
+.persona-field textarea {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: white;
+}
+
+.persona-field.full {
+  grid-column: 1 / -1;
+}
+
+.persona-stepper {
+  margin-bottom: 6px;
+}
+
+.persona-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.persona-step span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.persona-step.active {
+  color: var(--text);
+}
+
+.persona-step.active span {
+  background: var(--blue);
+  color: white;
+}
+
+.persona-option-group {
+  display: grid;
+  gap: 12px;
+}
+
+.persona-preview {
+  display: grid;
+  gap: 14px;
+}
+
 .speaker-badge.host {
   background: #0f172a;
 }
@@ -633,6 +843,7 @@ input {
 
   .card-grid,
   .index-grid,
+  .persona-card-grid,
   .report-grid,
   .timing-grid {
     grid-template-columns: 1fr;
@@ -668,6 +879,10 @@ input {
     align-items: flex-start;
   }
 
+  .analysis-toolbar {
+    justify-items: stretch;
+  }
+
   .control-row {
     width: 100%;
   }
@@ -676,5 +891,10 @@ input {
   .secondary-button,
   .ghost-button {
     width: 100%;
+  }
+
+  .persona-modal {
+    width: 100vw;
+    padding: 18px;
   }
 }
