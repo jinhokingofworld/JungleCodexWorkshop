@@ -1,15 +1,27 @@
 import type {
   AnalysisSession,
   CreateAnalysisInput,
+  PersonaOption,
+  SelectedPersona,
   SessionPreview
 } from "@/lib/types";
+import { findSymbol, symbolCatalog } from "@/lib/mock-data";
+import {
+  getDefaultPersonaIds,
+  resolveSelectedPersonas,
+  toSelectedPersonaSummaries
+} from "@/lib/server/personas";
 import { buildEvidenceBundle } from "@/lib/server/providers";
 import { generateStructuredAnalysis } from "@/lib/server/llm/provider";
-import { findSymbol, symbolCatalog } from "@/lib/mock-data";
 import { pickWatchwords, sentimentFromChange } from "@/lib/server/utils";
 
+interface CreateAnalysisSessionInput extends CreateAnalysisInput {
+  personas: PersonaOption[];
+  selectedPersonas: SelectedPersona[];
+}
+
 interface AnalysisStore {
-  createSession(input: CreateAnalysisInput): Promise<AnalysisSession>;
+  createSession(input: CreateAnalysisSessionInput): Promise<AnalysisSession>;
   getSession(id: string): AnalysisSession | null;
   getRecent(limit?: number): SessionPreview[];
   getPopular(limit?: number): SessionPreview[];
@@ -49,9 +61,13 @@ function createPreview(session: AnalysisSession): SessionPreview {
 class MemoryAnalysisStore implements AnalysisStore {
   private sessions = new Map<string, AnalysisSession>();
 
-  async createSession(input: CreateAnalysisInput) {
+  async createSession(input: CreateAnalysisSessionInput) {
     const bundle = await buildEvidenceBundle(input.market, input.symbol);
-    const generated = await generateStructuredAnalysis(bundle, input.userQuestion);
+    const generated = await generateStructuredAnalysis(
+      bundle,
+      input.personas,
+      input.userQuestion
+    );
     const id = `${input.market.toLowerCase()}-${input.symbol.toLowerCase()}-${Date.now()}`;
 
     const boardScore =
@@ -68,6 +84,7 @@ class MemoryAnalysisStore implements AnalysisStore {
       replayCount: 0,
       boardScore,
       optionalQuestion: input.userQuestion,
+      selectedPersonas: input.selectedPersonas,
       evidence: bundle.items,
       messages: generated.messages,
       timingCard: generated.timingCard,
@@ -125,6 +142,9 @@ class MemoryAnalysisStore implements AnalysisStore {
       return;
     }
 
+    const defaultPersonaIds = await getDefaultPersonaIds();
+    const personas = await resolveSelectedPersonas(defaultPersonaIds);
+    const selectedPersonas = toSelectedPersonaSummaries(personas);
     const defaults = symbolCatalog.filter((symbol) =>
       ["005930", "000660", "NVDA", "TSLA"].includes(symbol.symbol)
     );
@@ -133,6 +153,9 @@ class MemoryAnalysisStore implements AnalysisStore {
       const session = await this.createSession({
         market: profile.market,
         symbol: profile.symbol,
+        personaIds: defaultPersonaIds,
+        personas,
+        selectedPersonas,
         forceFresh: true
       });
 
@@ -166,7 +189,7 @@ export async function getSessionOrThrow(id: string) {
   return session;
 }
 
-export async function createAnalysisSession(input: CreateAnalysisInput) {
+export async function createAnalysisSession(input: CreateAnalysisSessionInput) {
   const profile = findSymbol(input.market, input.symbol);
   if (!profile) {
     throw new Error(`Unsupported symbol: ${input.market}/${input.symbol}`);

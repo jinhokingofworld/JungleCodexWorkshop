@@ -1,3 +1,4 @@
+import { roleLabelFromCatalog } from "@/lib/personas";
 import type { ExpertRole, Market, Sentiment, SymbolProfile } from "@/lib/types";
 
 export function sleep(ms: number) {
@@ -20,16 +21,7 @@ export function formatCompactNumber(value: number) {
 }
 
 export function roleLabel(role: ExpertRole) {
-  switch (role) {
-    case "host":
-      return "진행자";
-    case "krAnalyst":
-      return "한국투자전문가";
-    case "globalAnalyst":
-      return "글로벌 투자전문가";
-    case "macroEconomist":
-      return "경제학자";
-  }
+  return roleLabelFromCatalog(role);
 }
 
 export function roleAccent(role: ExpertRole) {
@@ -42,6 +34,16 @@ export function roleAccent(role: ExpertRole) {
       return "#0f766e";
     case "macroEconomist":
       return "#b45309";
+    case "valueInvestor":
+      return "#4f46e5";
+    case "growthStrategist":
+      return "#db2777";
+    case "technicalAnalyst":
+      return "#0891b2";
+    case "quantAnalyst":
+      return "#7c3aed";
+    case "riskManager":
+      return "#dc2626";
   }
 }
 

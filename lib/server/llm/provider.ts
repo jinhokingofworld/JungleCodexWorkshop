@@ -1,7 +1,11 @@
+import { getPersonaLlmDescription } from "@/lib/personas";
 import type {
   DebateMessage,
   EvidenceBundle,
+  EvidenceItem,
   FinalReport,
+  PersonaName,
+  PersonaOption,
   Sentiment,
   TimingCard
 } from "@/lib/types";
@@ -20,6 +24,30 @@ export interface GeneratedAnalysis {
   finalReport: FinalReport;
 }
 
+interface OpenAIChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+}
+
+interface LLMClient {
+  generate(
+    bundle: EvidenceBundle,
+    personas: PersonaOption[],
+    userQuestion?: string
+  ): Promise<GeneratedAnalysis>;
+}
+
+interface MessageDraft {
+  role: DebateMessage["role"];
+  stance: Sentiment;
+  confidence: number;
+  text: string;
+  evidenceIds: string[];
+}
+
 function rangeText(price: number, market: "KR" | "US", factor: number) {
   const currency = market === "KR" ? "KRW" : "USD";
   const lower = price * (1 - factor);
@@ -30,101 +58,240 @@ function rangeText(price: number, market: "KR" | "US", factor: number) {
 function stanceSummary(stance: Sentiment) {
   switch (stance) {
     case "bullish":
-      return "우상향 가능성을 더 높게 보고 있습니다.";
+      return "상승 여지는 남아 있지만 추격보다 확인 후 진입이 적절합니다.";
     case "neutral":
-      return "방향성보다 확인 구간으로 보고 있습니다.";
+      return "방향성이 명확하지 않아 가격과 수급 확인이 우선입니다.";
     case "bearish":
-      return "추가 조정 가능성을 더 경계하고 있습니다.";
+      return "추가 조정 가능성에 대비해 방어적인 접근이 필요합니다.";
   }
 }
 
-function createMockMessages(bundle: EvidenceBundle): DebateMessage[] {
-  const { symbol, items } = bundle;
-  const [priceEvidence, newsEvidence, filingEvidence] = items;
-  const stance = sentimentFromChange(symbol.changePct);
-  const secondStance: Sentiment = stance === "bullish" ? "neutral" : "bullish";
-  const riskStance: Sentiment = stance === "bearish" ? "bearish" : "neutral";
+function getEvidenceByKind(bundle: EvidenceBundle, kind: EvidenceItem["kind"]) {
+  return bundle.items.find((item) => item.kind === kind) ?? null;
+}
 
-  const drafts = [
+function selectEvidence(bundle: EvidenceBundle) {
+  const fallback = bundle.items[0];
+
+  return {
+    price: getEvidenceByKind(bundle, "price") ?? fallback,
+    news: getEvidenceByKind(bundle, "news") ?? bundle.items[1] ?? fallback,
+    macro:
+      getEvidenceByKind(bundle, "macro") ??
+      getEvidenceByKind(bundle, "filing") ??
+      bundle.items[2] ??
+      fallback
+  };
+}
+
+function adjustBullish(stance: Sentiment): Sentiment {
+  if (stance === "bearish") {
+    return "neutral";
+  }
+
+  if (stance === "neutral") {
+    return "bullish";
+  }
+
+  return stance;
+}
+
+function adjustCautious(stance: Sentiment): Sentiment {
+  if (stance === "bullish") {
+    return "neutral";
+  }
+
+  if (stance === "neutral") {
+    return "bearish";
+  }
+
+  return stance;
+}
+
+function stanceForPersona(name: PersonaName, round: 1 | 2, baseStance: Sentiment): Sentiment {
+  switch (name) {
+    case "krAnalyst":
+      return round === 1 ? baseStance : adjustBullish(baseStance);
+    case "globalAnalyst":
+      return round === 1 ? adjustBullish(baseStance) : "neutral";
+    case "macroEconomist":
+      return round === 1 ? adjustCautious(baseStance) : "neutral";
+    case "valueInvestor":
+      return round === 1 ? adjustBullish(adjustCautious(baseStance)) : "neutral";
+    case "growthStrategist":
+      return round === 1 ? adjustBullish(baseStance) : adjustBullish(baseStance);
+    case "technicalAnalyst":
+      return round === 1 ? baseStance : adjustBullish(baseStance);
+    case "quantAnalyst":
+      return "neutral";
+    case "riskManager":
+      return round === 1 ? adjustCautious(baseStance) : "bearish";
+  }
+}
+
+function confidenceForPersona(name: PersonaName, round: 1 | 2) {
+  const base = {
+    krAnalyst: 0.79,
+    globalAnalyst: 0.74,
+    macroEconomist: 0.72,
+    valueInvestor: 0.77,
+    growthStrategist: 0.75,
+    technicalAnalyst: 0.73,
+    quantAnalyst: 0.76,
+    riskManager: 0.78
+  } satisfies Record<PersonaName, number>;
+
+  return Math.max(0.64, Math.min(0.88, base[name] - (round === 2 ? 0.02 : 0)));
+}
+
+function buildPersonaText(
+  persona: PersonaOption,
+  bundle: EvidenceBundle,
+  round: 1 | 2
+) {
+  const { symbol } = bundle;
+  const evidence = selectEvidence(bundle);
+  const buyRange = rangeText(symbol.price, symbol.market, 0.015);
+  const wideRange = rangeText(symbol.price, symbol.market, 0.03);
+
+  switch (persona.name) {
+    case "krAnalyst":
+      return round === 1
+        ? {
+            text: `${evidence.price.snippet} 국내 투자자 관점에서는 ${buyRange} 구간이 첫 판단선입니다. 거래대금이 유지되면 단기 수급 우위가 이어질 수 있습니다.`,
+            evidenceIds: [evidence.price.id]
+          }
+        : {
+            text: `국내 수급이 꺾이는지와 공시 모멘텀이 이어지는지를 함께 봐야 합니다. 가격이 급하게 ${wideRange} 바깥으로 치솟으면 추격보다 눌림 확인이 더 합리적입니다.`,
+            evidenceIds: [evidence.price.id, evidence.macro.id]
+          };
+    case "globalAnalyst":
+      return round === 1
+        ? {
+            text: `${evidence.news.snippet} 해외 피어와 비교하면 지금은 과열 추격보다 상대 밸류에이션 확인 구간에 가깝습니다. 달러 강세와 외국인 흐름도 같이 봐야 합니다.`,
+            evidenceIds: [evidence.news.id]
+          }
+        : {
+            text: `같은 섹터의 글로벌 리더가 강한 멀티플을 유지한다면 상단 재평가도 가능합니다. 다만 해외 기술주 변동성이 커지면 국내외 모두 할인율이 빠르게 올라갈 수 있습니다.`,
+            evidenceIds: [evidence.news.id, evidence.macro.id]
+          };
+    case "macroEconomist":
+      return round === 1
+        ? {
+            text: `${evidence.macro.snippet} 금리와 환율이 동시에 흔들리면 개별 종목의 좋은 재료도 할인될 수 있습니다. 이번 토론에서는 거시 변수 확인이 먼저입니다.`,
+            evidenceIds: [evidence.macro.id]
+          }
+        : {
+            text: `유동성 환경이 안정적이면 현재 변동성은 흡수될 수 있지만, 정책 이벤트 전후에는 보수적인 비중 조절이 필요합니다. 매크로 노이즈가 커질수록 진입 타이밍은 뒤로 미루는 편이 낫습니다.`,
+            evidenceIds: [evidence.macro.id]
+          };
+    case "valueInvestor":
+      return round === 1
+        ? {
+            text: `가치 관점에서는 현재 가격이 무엇을 이미 반영했는지가 중요합니다. ${buyRange} 안에서 안전마진이 확인되면 장기 관찰 리스트에서 실전 후보로 옮길 수 있습니다.`,
+            evidenceIds: [evidence.price.id, evidence.macro.id]
+          }
+        : {
+            text: `좋은 기업이라도 비싼 가격에서는 기대수익률이 낮아집니다. 실적 확인 전 과도한 프리미엄이 붙으면 매수보다 기다림의 가치가 커집니다.`,
+            evidenceIds: [evidence.price.id]
+          };
+    case "growthStrategist":
+      return round === 1
+        ? {
+            text: `${symbol.name}의 핵심은 단기 가격보다 성장 지속성입니다. 실적 가속과 시장 점유율 확장 신호가 이어진다면 현재 구간은 성장주 관점에서 재평가 초입일 수 있습니다.`,
+            evidenceIds: [evidence.news.id, evidence.macro.id]
+          }
+        : {
+            text: `성장주는 기대가 꺾이는 순간 조정 폭도 커집니다. 다음 분기 가이던스와 신규 모멘텀이 약해지면 프리미엄을 오래 방어하기 어렵습니다.`,
+            evidenceIds: [evidence.news.id]
+          };
+    case "technicalAnalyst":
+      return round === 1
+        ? {
+            text: `차트로 보면 현재 가격대는 ${buyRange} 부근의 지지 확인이 핵심입니다. 거래량이 붙는 상승과 그렇지 않은 반등은 전혀 다른 신호로 봐야 합니다.`,
+            evidenceIds: [evidence.price.id]
+          }
+        : {
+            text: `상단 저항을 한 번에 돌파하지 못하면 박스권 재진입 가능성도 열어둬야 합니다. 기술적으로는 ${wideRange} 안에서 눌림 후 재시도 여부를 보는 편이 안전합니다.`,
+            evidenceIds: [evidence.price.id]
+          };
+    case "quantAnalyst":
+      return round === 1
+        ? {
+            text: `수치 신호만 보면 최근 변동성은 높지만 아직 완전한 이탈 패턴으로 보기는 어렵습니다. 팩터 관점에서는 추세와 평균회귀 신호가 혼재해 있어 분할 접근이 맞습니다.`,
+            evidenceIds: [evidence.price.id, evidence.news.id]
+          }
+        : {
+            text: `확률적으로는 이벤트 직후의 과열 구간보다 확인 이후의 재진입이 손익비가 더 좋습니다. 이번 케이스도 단일 가격이 아니라 구간별 대응으로 모델링하는 편이 유리합니다.`,
+            evidenceIds: [evidence.price.id]
+          };
+    case "riskManager":
+      return round === 1
+        ? {
+            text: `좋은 시나리오보다 먼저 봐야 할 것은 손실 통제선입니다. ${rangeText(symbol.price, symbol.market, 0.04)} 아래로 흐름이 무너지면 빠른 재평가가 필요합니다.`,
+            evidenceIds: [evidence.price.id, evidence.macro.id]
+          }
+        : {
+            text: `이번 토론의 핵심 리스크는 거시 변수와 기대치 훼손입니다. 포지션을 잡더라도 분할 진입과 명확한 손절 기준 없이 접근하면 변동성을 버티기 어렵습니다.`,
+            evidenceIds: [evidence.macro.id]
+          };
+  }
+}
+
+function createMockMessages(bundle: EvidenceBundle, personas: PersonaOption[]): DebateMessage[] {
+  const baseStance = sentimentFromChange(bundle.symbol.changePct);
+  const openingEvidence = selectEvidence(bundle);
+  const personaLabels = personas.map((persona) => persona.label).join(", ");
+
+  const drafts: MessageDraft[] = [
     {
-      role: "host" as const,
-      speaker: roleLabel("host"),
-      stance: "neutral" as const,
-      confidence: 0.74,
-      text: `${symbol.name} 현재 흐름은 ${symbol.changePct >= 0 ? "반등 시도" : "조정 압력"} 구간입니다. 먼저 가격과 수급, 뉴스, 거시 변수 중 무엇이 우선인지부터 정리하겠습니다.`,
-      evidenceIds: [priceEvidence.id]
-    },
-    {
-      role: "krAnalyst" as const,
-      speaker: roleLabel("krAnalyst"),
-      stance,
+      role: "host",
+      stance: "neutral",
       confidence: 0.78,
-      text: `${priceEvidence.snippet} 국내 투자자 관점에서는 ${rangeText(symbol.price, symbol.market, 0.015)} 구간을 1차 판단선으로 보는 게 맞습니다.`,
-      evidenceIds: [priceEvidence.id]
+      text: `${bundle.symbol.name}의 토론을 시작하겠습니다. 오늘은 ${personaLabels} 조합으로 가격, 수급, 거시 변수, 리스크를 나눠서 점검하겠습니다.`,
+      evidenceIds: [openingEvidence.price.id]
     },
+    ...personas.map((persona) => {
+      const commentary = buildPersonaText(persona, bundle, 1);
+
+      return {
+        role: persona.name,
+        stance: stanceForPersona(persona.name, 1, baseStance),
+        confidence: confidenceForPersona(persona.name, 1),
+        text: commentary.text,
+        evidenceIds: commentary.evidenceIds
+      } satisfies MessageDraft;
+    }),
+    ...personas.map((persona) => {
+      const commentary = buildPersonaText(persona, bundle, 2);
+
+      return {
+        role: persona.name,
+        stance: stanceForPersona(persona.name, 2, baseStance),
+        confidence: confidenceForPersona(persona.name, 2),
+        text: commentary.text,
+        evidenceIds: commentary.evidenceIds
+      } satisfies MessageDraft;
+    }),
     {
-      role: "globalAnalyst" as const,
-      speaker: roleLabel("globalAnalyst"),
-      stance: secondStance,
-      confidence: 0.72,
-      text: `${newsEvidence.snippet} 해외 비교 종목과 밸류에이션을 같이 보면 지금은 과열 추격보다 확인 매수가 더 적절해 보입니다.`,
-      evidenceIds: [newsEvidence.id]
-    },
-    {
-      role: "macroEconomist" as const,
-      speaker: roleLabel("macroEconomist"),
-      stance: riskStance,
-      confidence: 0.7,
-      text: `${filingEvidence.snippet} 금리와 환율, 실적 기대치가 같이 흔들리면 단기 타이밍은 좋아 보여도 변동폭이 예상보다 커질 수 있습니다.`,
-      evidenceIds: [filingEvidence.id]
-    },
-    {
-      role: "host" as const,
-      speaker: roleLabel("host"),
-      stance: "neutral" as const,
-      confidence: 0.76,
-      text: `쟁점은 두 가지입니다. 지금 가격이 눌림목인지, 아니면 재료 대비 선반영인지입니다. 각자 진입 타이밍 관점에서 다시 정리해 주세요.`,
-      evidenceIds: [priceEvidence.id, newsEvidence.id]
-    },
-    {
-      role: "krAnalyst" as const,
-      speaker: roleLabel("krAnalyst"),
-      stance,
-      confidence: 0.8,
-      text: `${symbol.changePct >= 0 ? "눌림이 얕게 나올 때 분할 접근" : "하락 진정 확인 후 접근"}이 적절합니다. 거래량이 유지되면 단기 스윙 관점에서 기회 구간으로 볼 수 있습니다.`,
-      evidenceIds: [priceEvidence.id]
-    },
-    {
-      role: "globalAnalyst" as const,
-      speaker: roleLabel("globalAnalyst"),
-      stance: riskStance,
-      confidence: 0.69,
-      text: `다만 ${rangeText(symbol.price, symbol.market, 0.03)} 바깥으로 급하게 움직이면 추격보다 관망이 낫습니다. 이벤트 드리븐 종목처럼 움직일 가능성도 있습니다.`,
-      evidenceIds: [newsEvidence.id]
-    },
-    {
-      role: "macroEconomist" as const,
-      speaker: roleLabel("macroEconomist"),
-      stance: "neutral" as const,
-      confidence: 0.73,
-      text: `결론적으로 단기 기회는 열려 있지만 거시 변수 확인이 필요합니다. 발표 일정이나 공시가 나오는 날에는 평소보다 보수적인 비중 조절이 필요합니다.`,
-      evidenceIds: [filingEvidence.id]
-    },
-    {
-      role: "host" as const,
-      speaker: roleLabel("host"),
-      stance: "neutral" as const,
+      role: "host",
+      stance: "neutral",
       confidence: 0.82,
-      text: `합의된 결론은 명확합니다. ${stanceSummary(stance)} 대신 추격보다는 구간 대응, 한 번에 진입보다는 분할 접근이 더 적절하다는 의견이 우세합니다.`,
-      evidenceIds: [priceEvidence.id, newsEvidence.id, filingEvidence.id]
+      text: `정리하면 ${stanceSummary(baseStance)} 오늘 결론은 추격보다 근거를 확인하며 구간 대응하는 접근이 적절하다는 쪽에 가깝습니다.`,
+      evidenceIds: [openingEvidence.price.id, openingEvidence.news.id, openingEvidence.macro.id]
     }
   ];
 
   return drafts.map((draft, index) => ({
-    id: `${symbol.market.toLowerCase()}-${symbol.symbol.toLowerCase()}-${index + 1}`,
+    id: `${bundle.symbol.market.toLowerCase()}-${bundle.symbol.symbol.toLowerCase()}-${index + 1}`,
+    role: draft.role,
+    speaker: roleLabel(draft.role),
     turn: index + 1,
-    emittedAt: new Date(Date.now() + index * 1_000).toISOString(),
-    ...draft
+    text: draft.text,
+    confidence: draft.confidence,
+    stance: draft.stance,
+    evidenceIds: draft.evidenceIds,
+    emittedAt: new Date(Date.now() + index * 1_000).toISOString()
   }));
 }
 
@@ -136,29 +303,29 @@ function createTimingCard(bundle: EvidenceBundle): TimingCard {
     summary:
       symbol.changePct >= 0
         ? "추격보다 눌림 확인 후 분할 접근이 유리한 구간입니다."
-        : "하락 진정 여부를 확인한 뒤 짧게 분할 접근하는 전략이 더 안전합니다.",
+        : "하락 진정 여부를 확인한 뒤 방어적으로 접근하는 편이 유리합니다.",
     buyZone: {
-      label: "매수 관심구간",
+      label: "매수 관심 구간",
       priceText: rangeText(symbol.price, symbol.market, 0.012),
-      reason: "지지선 근처에서 거래량이 유지되면 진입 명분이 강화됩니다.",
+      reason: "지지 구간에서 거래량이 받쳐주면 진입 명분이 강화됩니다.",
       tone: "positive"
     },
     chaseWarning: {
-      label: "추격매수 경계구간",
+      label: "추격 매수 경계 구간",
       priceText: rangeText(symbol.price, symbol.market, 0.035),
-      reason: "단기 과열 구간에서는 수익 대비 손실 리스크가 커집니다.",
+      reason: "단기 과열 구간에서는 기대수익 대비 리스크가 더 빠르게 커집니다.",
       tone: "caution"
     },
     trimZone: {
-      label: "분할매도 고려구간",
+      label: "분할 매도 고려 구간",
       priceText: formatPrice(symbol.price * 1.05, currency),
-      reason: "단기 목표수익을 일부 확보하고 다음 재진입 여지를 남기는 구간입니다.",
+      reason: "단기 목표 수익을 일부 반영하고 다음 시그널을 기다리는 구간입니다.",
       tone: "positive"
     },
     riskLine: {
       label: "손절/리스크 관리 구간",
       priceText: formatPrice(symbol.price * 0.96, currency),
-      reason: "이 구간이 무너지면 현재 시나리오의 전제가 약해졌다고 봅니다.",
+      reason: "이 구간이 무너지면 현재 시나리오를 다시 점검해야 합니다.",
       tone: "risk"
     },
     validUntil: isoMinutesFromNow(180)
@@ -172,146 +339,129 @@ function createFinalReport(bundle: EvidenceBundle): FinalReport {
   return {
     overallView:
       stance === "bullish"
-        ? `${symbol.name}은 단기 모멘텀이 살아 있지만 추격보다 눌림 확인 후 접근이 유리합니다.`
+        ? `${symbol.name}은 단기 모멘텀이 살아 있지만 추격보다 눌림 확인 뒤 분할 접근이 더 적절합니다.`
         : stance === "bearish"
-          ? `${symbol.name}은 단기 변동성이 커서 서두른 진입보다 확인 후 분할 접근이 적절합니다.`
-          : `${symbol.name}은 방향성이 아직 완전히 열리지 않아 구간 대응이 필요한 종목입니다.`,
+          ? `${symbol.name}은 단기 변동성이 큰 편이라 성급한 진입보다 확인 후 대응이 필요합니다.`
+          : `${symbol.name}은 방향성이 아직 완전히 열리지 않아 구간 대응과 체크포인트 점검이 우선입니다.`,
     bullCase:
-      "수급 유지, 업종 심리 개선, 추가 뉴스 또는 공시가 이어지면 단기 스윙 관점의 재평가가 가능합니다.",
+      "수급 개선, 피어 밸류에이션 확장, 추가 뉴스 또는 공시가 이어지면 단기 재평가 구간이 열릴 수 있습니다.",
     bearCase:
-      "거래량 둔화, 재료 소멸, 시장 전반 리스크 오프가 겹치면 가격 조정이 더 길어질 수 있습니다.",
+      "거래대금 둔화, 기대치 하향, 매크로 변동성 확대가 겹치면 조정 폭이 예상보다 길어질 수 있습니다.",
     risks: [
-      "실적 또는 가이던스가 기대에 못 미칠 수 있습니다.",
-      "환율과 금리 같은 외부 거시 변수에 따라 방향이 흔들릴 수 있습니다.",
-      "장중 변동성이 커서 추격 진입 시 손익비가 빠르게 나빠질 수 있습니다."
+      "실적 또는 가이던스가 기대치를 밑돌 수 있습니다.",
+      "금리, 환율, 유동성 같은 거시 변수 변화가 밸류에이션에 직접 영향을 줄 수 있습니다.",
+      "변동성이 큰 구간에서는 추격 진입의 손익비가 빠르게 악화될 수 있습니다."
     ],
     watchPoints: [
       "직전 고점 돌파 여부와 거래량 동반 여부",
-      "장 마감 전 수급 유지 여부",
-      "새로운 뉴스/공시가 기존 기대를 강화하는지 여부"
+      "뉴스와 공시가 기존 기대를 강화하는지 여부",
+      "장 마감 전후 수급 흐름이 유지되는지 여부"
     ],
     disclaimer:
-      "이 정보는 투자 참고용 분석이며 특정 종목의 매수·매도를 권유하지 않습니다."
+      "이 정보는 참고용 분석이며 특정 종목의 매수 또는 매도를 권유하지 않습니다."
   };
 }
 
-interface LLMClient {
-  generate(bundle: EvidenceBundle, userQuestion?: string): Promise<GeneratedAnalysis>;
-}
+function createOutputSchema(personas: PersonaOption[]) {
+  const allowedRoles = ["host", ...personas.map((persona) => persona.name)];
+  const expectedMessageCount = personas.length * 2 + 2;
 
-interface OpenAIChatCompletionResponse {
-  choices?: Array<{
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-    };
-  }>;
-}
-
-class MockLLMClient implements LLMClient {
-  async generate(bundle: EvidenceBundle): Promise<GeneratedAnalysis> {
-    return {
-      messages: createMockMessages(bundle),
-      timingCard: createTimingCard(bundle),
-      finalReport: createFinalReport(bundle)
-    };
-  }
-}
-
-const outputSchema = {
-  name: "stock_debate_analysis",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      messages: {
-        type: "array",
-        minItems: 8,
-        maxItems: 10,
-        items: {
+  return {
+    name: "stock_debate_analysis",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        messages: {
+          type: "array",
+          minItems: expectedMessageCount,
+          maxItems: expectedMessageCount,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              role: {
+                type: "string",
+                enum: allowedRoles
+              },
+              speaker: { type: "string" },
+              stance: {
+                type: "string",
+                enum: ["bullish", "neutral", "bearish"]
+              },
+              confidence: { type: "number" },
+              text: { type: "string" },
+              evidenceIds: {
+                type: "array",
+                minItems: 1,
+                items: { type: "string" }
+              }
+            },
+            required: ["role", "speaker", "stance", "confidence", "text", "evidenceIds"]
+          }
+        },
+        timingCard: {
           type: "object",
           additionalProperties: false,
           properties: {
-            role: {
-              type: "string",
-              enum: ["host", "krAnalyst", "globalAnalyst", "macroEconomist"]
-            },
-            speaker: { type: "string" },
-            stance: {
-              type: "string",
-              enum: ["bullish", "neutral", "bearish"]
-            },
-            confidence: { type: "number" },
-            text: { type: "string" },
-            evidenceIds: {
-              type: "array",
-              minItems: 1,
-              items: { type: "string" }
-            }
+            summary: { type: "string" },
+            buyZone: { $ref: "#/$defs/timingSignal" },
+            chaseWarning: { $ref: "#/$defs/timingSignal" },
+            trimZone: { $ref: "#/$defs/timingSignal" },
+            riskLine: { $ref: "#/$defs/timingSignal" },
+            validUntil: { type: "string" }
           },
-          required: ["role", "speaker", "stance", "confidence", "text", "evidenceIds"]
+          required: [
+            "summary",
+            "buyZone",
+            "chaseWarning",
+            "trimZone",
+            "riskLine",
+            "validUntil"
+          ]
+        },
+        finalReport: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            overallView: { type: "string" },
+            bullCase: { type: "string" },
+            bearCase: { type: "string" },
+            risks: { type: "array", items: { type: "string" } },
+            watchPoints: { type: "array", items: { type: "string" } },
+            disclaimer: { type: "string" }
+          },
+          required: [
+            "overallView",
+            "bullCase",
+            "bearCase",
+            "risks",
+            "watchPoints",
+            "disclaimer"
+          ]
         }
       },
-      timingCard: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          summary: { type: "string" },
-          buyZone: { $ref: "#/$defs/timingSignal" },
-          chaseWarning: { $ref: "#/$defs/timingSignal" },
-          trimZone: { $ref: "#/$defs/timingSignal" },
-          riskLine: { $ref: "#/$defs/timingSignal" },
-          validUntil: { type: "string" }
-        },
-        required: [
-          "summary",
-          "buyZone",
-          "chaseWarning",
-          "trimZone",
-          "riskLine",
-          "validUntil"
-        ]
-      },
-      finalReport: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          overallView: { type: "string" },
-          bullCase: { type: "string" },
-          bearCase: { type: "string" },
-          risks: { type: "array", items: { type: "string" } },
-          watchPoints: { type: "array", items: { type: "string" } },
-          disclaimer: { type: "string" }
-        },
-        required: [
-          "overallView",
-          "bullCase",
-          "bearCase",
-          "risks",
-          "watchPoints",
-          "disclaimer"
-        ]
-      }
-    },
-    required: ["messages", "timingCard", "finalReport"],
-    $defs: {
-      timingSignal: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          label: { type: "string" },
-          priceText: { type: "string" },
-          reason: { type: "string" },
-          tone: {
-            type: "string",
-            enum: ["positive", "caution", "risk"]
-          }
-        },
-        required: ["label", "priceText", "reason", "tone"]
+      required: ["messages", "timingCard", "finalReport"],
+      $defs: {
+        timingSignal: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            label: { type: "string" },
+            priceText: { type: "string" },
+            reason: { type: "string" },
+            tone: {
+              type: "string",
+              enum: ["positive", "caution", "risk"]
+            }
+          },
+          required: ["label", "priceText", "reason", "tone"]
+        }
       }
     }
-  }
-} as const;
+  } as const;
+}
 
 function toJsonText(
   content: string | Array<{ type?: string; text?: string }> | undefined
@@ -330,7 +480,7 @@ function toJsonText(
   return "";
 }
 
-function buildPrompt(bundle: EvidenceBundle, userQuestion?: string) {
+function buildPrompt(bundle: EvidenceBundle, personas: PersonaOption[], userQuestion?: string) {
   const evidenceText = bundle.items
     .map(
       (item) =>
@@ -338,21 +488,35 @@ function buildPrompt(bundle: EvidenceBundle, userQuestion?: string) {
     )
     .join("\n");
 
+  const personaText = personas
+    .map(
+      (persona, index) =>
+        `${index + 1}. ${persona.label} (${persona.name}) - ${getPersonaLlmDescription(persona.name)}`
+    )
+    .join("\n");
+
+  const sequence = ["host", ...personas.map((persona) => persona.name), ...personas.map((persona) => persona.name), "host"].join(
+    " -> "
+  );
+
   return [
-    "다음 주식 데이터를 보고 공개 서비스용 분석 결과를 JSON 스키마에 맞춰 생성하세요.",
-    "출력은 반드시 한국어여야 합니다.",
-    "메시지는 8~10개여야 합니다.",
-    "각 메시지는 2~3문장 이하여야 합니다.",
-    "전문가 역할은 host, krAnalyst, globalAnalyst, macroEconomist 중 하나만 사용하세요.",
-    "evidenceIds는 아래 제공된 id만 사용하세요.",
-    "직접적인 투자 권유 표현은 피하고 참고용 분석 톤을 유지하세요.",
-    `종목: ${bundle.symbol.name} (${bundle.symbol.symbol})`,
-    `시장: ${bundle.symbol.market}`,
-    `현재가: ${bundle.symbol.price}`,
-    `등락률: ${bundle.symbol.changePct}%`,
-    `섹터: ${bundle.symbol.sector}`,
-    userQuestion ? `사용자 질문: ${userQuestion}` : "사용자 질문: 없음",
-    "근거 데이터:",
+    "Return JSON only and write every natural-language field in Korean.",
+    "Use the selected personas to generate a stock debate plus timing card and final report.",
+    `Generate exactly ${personas.length * 2 + 2} debate messages.`,
+    `Follow this exact role order: ${sequence}.`,
+    "Use only the allowed roles from the schema.",
+    "Each message should be 1-2 sentences and grounded in the provided evidence.",
+    "evidenceIds must only use the provided evidence item ids.",
+    "The host should open the debate, keep it structured, and end with a balanced conclusion.",
+    `Symbol: ${bundle.symbol.name} (${bundle.symbol.symbol})`,
+    `Market: ${bundle.symbol.market}`,
+    `Current price: ${bundle.symbol.price}`,
+    `Change pct: ${bundle.symbol.changePct}%`,
+    `Sector: ${bundle.symbol.sector}`,
+    userQuestion ? `User question: ${userQuestion}` : "User question: none",
+    "Selected personas:",
+    personaText,
+    "Evidence:",
     evidenceText
   ].join("\n");
 }
@@ -374,9 +538,20 @@ function normalizeGeneratedAnalysis(
   };
 }
 
+class MockLLMClient implements LLMClient {
+  async generate(bundle: EvidenceBundle, personas: PersonaOption[]): Promise<GeneratedAnalysis> {
+    return {
+      messages: createMockMessages(bundle, personas),
+      timingCard: createTimingCard(bundle),
+      finalReport: createFinalReport(bundle)
+    };
+  }
+}
+
 class OpenAILLMClient implements LLMClient {
   async generate(
     bundle: EvidenceBundle,
+    personas: PersonaOption[],
     userQuestion?: string
   ): Promise<GeneratedAnalysis> {
     const apiKey = process.env.LLM_API_KEY;
@@ -396,17 +571,17 @@ class OpenAILLMClient implements LLMClient {
         temperature: 0.7,
         response_format: {
           type: "json_schema",
-          json_schema: outputSchema
+          json_schema: createOutputSchema(personas)
         },
         messages: [
           {
             role: "system",
             content:
-              "너는 공개형 주식 분석 서비스의 AI 편집팀이다. 반드시 JSON 스키마에 맞춰 응답하고, 한국어로만 작성한다."
+              "You are an AI stock debate engine. Return valid JSON that follows the provided schema exactly."
           },
           {
             role: "user",
-            content: buildPrompt(bundle, userQuestion)
+            content: buildPrompt(bundle, personas, userQuestion)
           }
         ]
       })
@@ -456,11 +631,13 @@ function createClient(): LLMClient {
 
 export async function generateStructuredAnalysis(
   bundle: EvidenceBundle,
+  personas: PersonaOption[],
   userQuestion?: string
 ) {
   const client = createClient();
+
   try {
-    return await client.generate(bundle, userQuestion);
+    return await client.generate(bundle, personas, userQuestion);
   } catch (error) {
     logApiEvent(
       "openai",
@@ -471,6 +648,7 @@ export async function generateStructuredAnalysis(
       },
       "warn"
     );
-    return new MockLLMClient().generate(bundle);
+
+    return new MockLLMClient().generate(bundle, personas);
   }
 }
