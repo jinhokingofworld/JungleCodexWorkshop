@@ -41,7 +41,8 @@ a {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -310,6 +311,12 @@ input {
 
 .analysis-actions {
   justify-content: flex-end;
+}
+
+.question-toggle.active {
+  border-color: rgba(49, 130, 246, 0.28);
+  background: rgba(49, 130, 246, 0.1);
+  color: #1d4ed8;
 }
 
 .persona-badge-row {
@@ -945,6 +952,53 @@ input {
   margin: 0;
   color: #334155;
   line-height: 1.6;
+}
+
+.question-panel,
+.question-summary {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(49, 130, 246, 0.16);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.question-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.question-panel-header h3 {
+  margin: 6px 0 0;
+  letter-spacing: -0.04em;
+}
+
+.question-label,
+.question-summary p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.question-input {
+  width: 100%;
+  min-height: 96px;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text);
+  resize: vertical;
+}
+
+.question-input:focus-visible {
+  outline: 2px solid rgba(49, 130, 246, 0.75);
+  outline-offset: 2px;
+  border-color: rgba(49, 130, 246, 0.34);
 }
 
 .persona-popover-shell {

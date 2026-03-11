@@ -43,6 +43,35 @@ describe("analysis generation", () => {
     expect(session.messages.every((message) => message.evidenceIds.length > 0)).toBe(true);
   });
 
+  it("threads an optional user question into the debate and report", async () => {
+    const personas = await listPersonas();
+    const question = "전쟁과 삼성전자가 관련이 있을지도 생각해줘";
+    const selected = personas.filter((persona) =>
+      ["krAnalyst", "globalAnalyst", "macroEconomist"].includes(persona.name)
+    );
+
+    const session = await createNewAnalysis({
+      market: "KR",
+      symbol: "005930",
+      personaIds: selected.map((persona) => persona.id),
+      userQuestion: question,
+      forceFresh: true
+    });
+
+    expect(session.optionalQuestion).toBe(question);
+    expect(session.messages[0]?.role).toBe("host");
+    expect(session.messages[0]?.text).toContain("전쟁");
+
+    const globalMessages = session.messages.filter((message) => message.role === "globalAnalyst");
+    const macroMessages = session.messages.filter((message) => message.role === "macroEconomist");
+
+    expect(globalMessages).toHaveLength(2);
+    expect(macroMessages).toHaveLength(2);
+    expect(globalMessages.every((message) => message.text.includes("전쟁"))).toBe(true);
+    expect(macroMessages.every((message) => message.text.includes("전쟁"))).toBe(true);
+    expect(session.finalReport.questionAnswer).toContain("전쟁");
+  });
+
   it("rejects invalid persona counts and invalid ids", async () => {
     const personas = await listPersonas();
 

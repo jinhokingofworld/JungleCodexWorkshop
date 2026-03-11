@@ -71,6 +71,8 @@ export function AnalysisRoom({
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [personaError, setPersonaError] = useState<string | null>(null);
+  const [analysisQuestion, setAnalysisQuestion] = useState(initialSession?.optionalQuestion ?? "");
+  const [showQuestionInput, setShowQuestionInput] = useState(Boolean(initialSession?.optionalQuestion));
 
   const evidenceMap = useMemo(() => {
     if (!session) {
@@ -119,6 +121,8 @@ export function AnalysisRoom({
     setShowReport(Boolean(initialSession));
     setIsStreaming(Boolean(initialSession));
     setSelectedPersonaIds(initialSession?.selectedPersonas.map((persona) => persona.id) ?? []);
+    setAnalysisQuestion(initialSession?.optionalQuestion ?? "");
+    setShowQuestionInput(Boolean(initialSession?.optionalQuestion));
     setIsPersonaLoading(true);
 
     void loadPersonas(controller.signal, initialSession?.selectedPersonas.map((persona) => persona.id));
@@ -173,6 +177,8 @@ export function AnalysisRoom({
       return;
     }
 
+    const normalizedQuestion = analysisQuestion.trim();
+
     closeStream();
     setError(null);
     setMessages([]);
@@ -191,6 +197,7 @@ export function AnalysisRoom({
           market,
           symbol,
           personaIds: selectedPersonaIds,
+          userQuestion: normalizedQuestion.length > 0 ? normalizedQuestion : undefined,
           forceFresh: true
         })
       });
@@ -201,6 +208,8 @@ export function AnalysisRoom({
       }
 
       setSession(payload.session);
+      setAnalysisQuestion(payload.session.optionalQuestion ?? normalizedQuestion);
+      setShowQuestionInput(Boolean(payload.session.optionalQuestion ?? normalizedQuestion));
       setSelectedPersonaIds(payload.session.selectedPersonas.map((persona) => persona.id));
       startReplay(payload.session.id);
     } catch (cause) {
@@ -257,6 +266,14 @@ export function AnalysisRoom({
 
       return [...current, personaId];
     });
+  }
+
+  function toggleQuestionInput() {
+    if (showQuestionInput) {
+      setAnalysisQuestion("");
+    }
+
+    setShowQuestionInput((current) => !current);
   }
 
   const liveMessages =
@@ -329,6 +346,15 @@ export function AnalysisRoom({
                   ) : null}
                 </div>
                 <button
+                  aria-expanded={showQuestionInput}
+                  className={`secondary-button question-toggle ${showQuestionInput ? "active" : ""}`}
+                  disabled={isPending}
+                  onClick={toggleQuestionInput}
+                  type="button"
+                >
+                  {showQuestionInput ? "질문 없이 바로 토론" : "분석 전 한 줄 질문 추가"}
+                </button>
+                <button
                   className="primary-button"
                   disabled={isPending || isPersonaLoading || !isSelectionValid || Boolean(personaError)}
                   onClick={() => startTransition(() => void createFreshAnalysis())}
@@ -366,11 +392,43 @@ export function AnalysisRoom({
         {personaError ? <div className="alert-error">{personaError}</div> : null}
         {error ? <div className="alert-error">{error}</div> : null}
 
+        {showQuestionInput && !session && !isStreaming ? (
+          <div className="question-panel">
+            <div className="question-panel-header">
+              <div>
+                <p className="eyebrow">분석 전 질문</p>
+                <h3>이번 토론에서 특히 보고 싶은 포인트가 있나요?</h3>
+              </div>
+              <span className="muted">{analysisQuestion.length}/120</span>
+            </div>
+            <label className="question-label" htmlFor="analysis-question">
+              예: 이번 분기 실적과 밸류에이션 기준으로 지금 들어가도 되는지 봐줘
+            </label>
+            <textarea
+              className="question-input"
+              id="analysis-question"
+              maxLength={120}
+              onChange={(event) => setAnalysisQuestion(event.target.value)}
+              placeholder="없으면 버튼을 다시 눌러 바로 토론으로 돌아갈 수 있습니다."
+              rows={3}
+              value={analysisQuestion}
+            />
+          </div>
+        ) : null}
+
+        {session?.optionalQuestion ? (
+          <div className="question-summary">
+            <span className="timing-label">이번 요청 질문</span>
+            <p>{session.optionalQuestion}</p>
+          </div>
+        ) : null}
+
         {!session && !isStreaming ? (
           <div className="empty-state">
             <strong>토론을 시작할 준비가 되었습니다.</strong>
             <p>
-              우측 상단에서 페르소나를 선택한 뒤 토론 시작을 누르면 AI 토론이 진행됩니다.
+              우측 상단에서 페르소나를 선택한 뒤 토론 시작을 누르면 AI 토론이 진행됩니다. 필요하면
+              질문 추가 버튼으로 이번 토론에서 보고 싶은 포인트를 먼저 남길 수 있습니다.
             </p>
             <div className="tag-row">
               <span className="tag">최소 2명</span>
@@ -553,6 +611,9 @@ export function AnalysisRoom({
             </div>
           </div>
           <div className="report-grid">
+            {session.finalReport.questionAnswer ? (
+              <ReportItem label="이번 질문 답변" value={session.finalReport.questionAnswer} />
+            ) : null}
             <ReportItem label="전체 결론" value={session.finalReport.overallView} />
             <ReportItem label="상승 시나리오" value={session.finalReport.bullCase} />
             <ReportItem label="하락 시나리오" value={session.finalReport.bearCase} />
