@@ -4,11 +4,17 @@ export type GuardMode = "off" | "monitor" | "enforce";
 
 export type EvidenceKind = "price" | "news" | "filing" | "macro" | "volume";
 
-export type ExpertRole =
-  | "host"
+export type PersonaName =
   | "krAnalyst"
   | "globalAnalyst"
-  | "macroEconomist";
+  | "macroEconomist"
+  | "valueInvestor"
+  | "growthStrategist"
+  | "technicalAnalyst"
+  | "quantAnalyst"
+  | "riskManager";
+
+export type ExpertRole = "host" | PersonaName;
 
 export type Sentiment = "bullish" | "neutral" | "bearish";
 
@@ -41,7 +47,7 @@ export interface MarketOverview {
 
 export interface EvidenceItem {
   id: string;
-  source: "KIS" | "AlphaVantage" | "NAVER" | "DART" | "MockMacro";
+  source: "KIS" | "TwelveData" | "NAVER" | "DART" | "MockMacro";
   kind: EvidenceKind;
   title: string;
   url: string | null;
@@ -65,6 +71,23 @@ export interface DebateMessage {
   stance: Sentiment;
   evidenceIds: string[];
   emittedAt: string;
+}
+
+export interface PersonaRecord {
+  id: string;
+  name: PersonaName;
+  count: number;
+}
+
+export interface PersonaOption extends PersonaRecord {
+  label: string;
+  description: string;
+}
+
+export interface SelectedPersona {
+  id: string;
+  name: PersonaName;
+  label: string;
 }
 
 export interface TimingSignal {
@@ -101,6 +124,7 @@ export interface AnalysisSession {
   replayCount: number;
   boardScore: number;
   optionalQuestion?: string;
+  selectedPersonas: SelectedPersona[];
   evidence: EvidenceItem[];
   messages: DebateMessage[];
   timingCard: TimingCard;
@@ -116,6 +140,7 @@ export interface AnalysisSession {
 export interface CreateAnalysisInput {
   market: Market;
   symbol: string;
+  personaIds: string[];
   userQuestion?: string;
   forceFresh?: boolean;
 }

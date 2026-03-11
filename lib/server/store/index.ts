@@ -1,24 +1,42 @@
 import type {
   AnalysisSession,
   CreateAnalysisInput,
+  PersonaOption,
+  SelectedPersona,
   SessionPreview
 } from "@/lib/types";
+import {
+  canUseMongo,
+  getDebatesCollection,
+  getPersonasCollection,
+  type DebateDocument
+} from "@/lib/server/db";
+import { findSymbol, symbolCatalog } from "@/lib/mock-data";
+import {
+  getDefaultPersonaIds,
+  resolveSelectedPersonas,
+  toSelectedPersonaSummaries
+} from "@/lib/server/personas";
 import { buildEvidenceBundle } from "@/lib/server/providers";
 import { generateStructuredAnalysis } from "@/lib/server/llm/provider";
-import { findSymbol, symbolCatalog } from "@/lib/mock-data";
 import { pickWatchwords, sentimentFromChange } from "@/lib/server/utils";
 
+interface CreateAnalysisSessionInput extends CreateAnalysisInput {
+  personas: PersonaOption[];
+  selectedPersonas: SelectedPersona[];
+}
+
 interface AnalysisStore {
-  createSession(input: CreateAnalysisInput): Promise<AnalysisSession>;
-  getSession(id: string): AnalysisSession | null;
-  getRecent(limit?: number): SessionPreview[];
-  getPopular(limit?: number): SessionPreview[];
-  incrementReplayCount(id: string): AnalysisSession | null;
+  createSession(input: CreateAnalysisSessionInput): Promise<AnalysisSession>;
+  getSession(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
+  getRecent(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
+  getPopular(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
+  incrementReplayCount(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
   seedIfNeeded(): Promise<void>;
 }
 
 const globalStore = globalThis as typeof globalThis & {
-  __analysisStore?: MemoryAnalysisStore;
+  __analysisStore?: AnalysisStore;
 };
 
 function createPreview(session: AnalysisSession): SessionPreview {
@@ -46,41 +64,109 @@ function createPreview(session: AnalysisSession): SessionPreview {
   };
 }
 
+function toDebateDocument(session: AnalysisSession): DebateDocument {
+  const keywords = pickWatchwords({
+    market: session.market,
+    symbol: session.symbol,
+    name: session.symbolName,
+    exchange: session.overview.exchange,
+    sector: session.overview.sector,
+    currency: session.market === "KR" ? "KRW" : "USD",
+    price: session.overview.price,
+    changePct: session.overview.changePct,
+    volume: 0
+  });
+
+  return {
+    _id: session.id,
+    object_id: session.id,
+    stock_name: session.symbolName,
+    stock_code: session.symbol,
+    contents: session.finalReport.overallView,
+    keyword: keywords.join(", "),
+    create_at: new Date(session.createdAt),
+    likes: 0,
+    replay_count: session.replayCount,
+    board_score: session.boardScore,
+    session
+  };
+}
+
+async function syncPersonas(session: AnalysisSession) {
+  if (!canUseMongo()) {
+    return;
+  }
+
+  const personas = await getPersonasCollection();
+  const uniqueNames = [...new Set(session.messages.map((message) => message.speaker))];
+  if (uniqueNames.length === 0) {
+    return;
+  }
+
+  await personas.bulkWrite(
+    uniqueNames.map((name) => ({
+      updateOne: {
+        filter: { _id: name },
+        update: {
+          $setOnInsert: {
+            _id: name,
+            object_id: name,
+            name
+          },
+          $inc: {
+            count: 1
+          }
+        },
+        upsert: true
+      }
+    }))
+  );
+}
+
+async function buildSession(input: CreateAnalysisSessionInput) {
+  const bundle = await buildEvidenceBundle(input.market, input.symbol);
+  const generated = await generateStructuredAnalysis(
+    bundle,
+    input.personas,
+    input.userQuestion
+  );
+  const id = `${input.market.toLowerCase()}-${input.symbol.toLowerCase()}-${Date.now()}`;
+
+  const boardScore =
+    50 +
+    Math.round(Math.abs(bundle.symbol.changePct) * 12) +
+    (sentimentFromChange(bundle.symbol.changePct) === "bullish" ? 8 : 4);
+
+  return {
+    id,
+    market: input.market,
+    symbol: bundle.symbol.symbol,
+    symbolName: bundle.symbol.name,
+    createdAt: new Date().toISOString(),
+    replayCount: 0,
+    boardScore,
+    optionalQuestion: input.userQuestion,
+    selectedPersonas: input.selectedPersonas,
+    evidence: bundle.items,
+    messages: generated.messages,
+    timingCard: generated.timingCard,
+    finalReport: generated.finalReport,
+    overview: {
+      price: bundle.symbol.price,
+      changePct: bundle.symbol.changePct,
+      exchange: bundle.symbol.exchange,
+      sector: bundle.symbol.sector
+    }
+  } satisfies AnalysisSession;
+}
+
 class MemoryAnalysisStore implements AnalysisStore {
   private sessions = new Map<string, AnalysisSession>();
 
-  async createSession(input: CreateAnalysisInput) {
-    const bundle = await buildEvidenceBundle(input.market, input.symbol);
-    const generated = await generateStructuredAnalysis(bundle, input.userQuestion);
-    const id = `${input.market.toLowerCase()}-${input.symbol.toLowerCase()}-${Date.now()}`;
+  async createSession(input: CreateAnalysisSessionInput) {
+    const session = await buildSession(input);
 
-    const boardScore =
-      50 +
-      Math.round(Math.abs(bundle.symbol.changePct) * 12) +
-      (sentimentFromChange(bundle.symbol.changePct) === "bullish" ? 8 : 4);
-
-    const session: AnalysisSession = {
-      id,
-      market: input.market,
-      symbol: bundle.symbol.symbol,
-      symbolName: bundle.symbol.name,
-      createdAt: new Date().toISOString(),
-      replayCount: 0,
-      boardScore,
-      optionalQuestion: input.userQuestion,
-      evidence: bundle.items,
-      messages: generated.messages,
-      timingCard: generated.timingCard,
-      finalReport: generated.finalReport,
-      overview: {
-        price: bundle.symbol.price,
-        changePct: bundle.symbol.changePct,
-        exchange: bundle.symbol.exchange,
-        sector: bundle.symbol.sector
-      }
-    };
-
-    this.sessions.set(id, session);
+    this.sessions.set(session.id, session);
     return session;
   }
 
@@ -125,6 +211,9 @@ class MemoryAnalysisStore implements AnalysisStore {
       return;
     }
 
+    const defaultPersonaIds = await getDefaultPersonaIds();
+    const personas = await resolveSelectedPersonas(defaultPersonaIds);
+    const selectedPersonas = toSelectedPersonaSummaries(personas);
     const defaults = symbolCatalog.filter((symbol) =>
       ["005930", "000660", "NVDA", "TSLA"].includes(symbol.symbol)
     );
@@ -133,6 +222,9 @@ class MemoryAnalysisStore implements AnalysisStore {
       const session = await this.createSession({
         market: profile.market,
         symbol: profile.symbol,
+        personaIds: defaultPersonaIds,
+        personas,
+        selectedPersonas,
         forceFresh: true
       });
 
@@ -142,9 +234,117 @@ class MemoryAnalysisStore implements AnalysisStore {
   }
 }
 
+class MongoAnalysisStore implements AnalysisStore {
+  async createSession(input: CreateAnalysisSessionInput) {
+    const session = await buildSession(input);
+    const debates = await getDebatesCollection();
+    await debates.updateOne(
+      { _id: session.id },
+      { $set: toDebateDocument(session) },
+      { upsert: true }
+    );
+    await syncPersonas(session);
+    return session;
+  }
+
+  async getSession(id: string) {
+    const debates = await getDebatesCollection();
+    const document = await debates.findOne({ _id: id });
+    return document?.session ?? null;
+  }
+
+  async getRecent(limit = 8) {
+    const debates = await getDebatesCollection();
+    return debates
+      .find({})
+      .sort({ create_at: -1 })
+      .limit(limit)
+      .toArray()
+      .then((documents) => documents.map((document) => createPreview(document.session)));
+  }
+
+  async getPopular(limit = 8) {
+    const debates = await getDebatesCollection();
+    const documents = await debates
+      .aggregate<DebateDocument & { popularity: number }>([
+        {
+          $addFields: {
+            popularity: {
+              $add: ["$board_score", { $multiply: ["$replay_count", 3] }]
+            }
+          }
+        },
+        {
+          $sort: {
+            popularity: -1,
+            create_at: -1
+          }
+        },
+        { $limit: limit }
+      ])
+      .toArray();
+
+    return documents.map((document) => createPreview(document.session));
+  }
+
+  async incrementReplayCount(id: string) {
+    const debates = await getDebatesCollection();
+    await debates.updateOne(
+      { _id: id },
+      {
+        $inc: {
+          replay_count: 1,
+          "session.replayCount": 1
+        }
+      }
+    );
+
+    const document = await debates.findOne({ _id: id });
+    return document?.session ?? null;
+  }
+
+  async seedIfNeeded() {
+    const debates = await getDebatesCollection();
+    const existingCount = await debates.countDocuments();
+    if (existingCount > 0) {
+      return;
+    }
+
+    const defaultPersonaIds = await getDefaultPersonaIds();
+    const personas = await resolveSelectedPersonas(defaultPersonaIds);
+    const selectedPersonas = toSelectedPersonaSummaries(personas);
+    const defaults = symbolCatalog.filter((symbol) =>
+      ["005930", "000660", "NVDA", "TSLA"].includes(symbol.symbol)
+    );
+
+    for (const profile of defaults) {
+      const session = await this.createSession({
+        market: profile.market,
+        symbol: profile.symbol,
+        personaIds: defaultPersonaIds,
+        personas,
+        selectedPersonas,
+        forceFresh: true
+      });
+
+      await debates.updateOne(
+        { _id: session.id },
+        {
+          $set: {
+            replay_count: Math.round(profile.volume / 1_000_000),
+            "session.replayCount": Math.round(profile.volume / 1_000_000)
+          }
+        }
+      );
+    }
+  }
+}
+
 function getStoreInstance() {
   if (!globalStore.__analysisStore) {
-    globalStore.__analysisStore = new MemoryAnalysisStore();
+    globalStore.__analysisStore = canUseMongo()
+      ? new MongoAnalysisStore()
+      : new MemoryAnalysisStore();
   }
 
   return globalStore.__analysisStore;
@@ -158,7 +358,7 @@ export async function ensureSeedData() {
 
 export async function getSessionOrThrow(id: string) {
   await ensureSeedData();
-  const session = analysisStore.getSession(id);
+  const session = await analysisStore.getSession(id);
   if (!session) {
     throw new Error(`Unknown session: ${id}`);
   }
@@ -166,8 +366,7 @@ export async function getSessionOrThrow(id: string) {
   return session;
 }
 
-export async function createAnalysisSession(input: CreateAnalysisInput) {
-  await ensureSeedData();
+export async function createAnalysisSession(input: CreateAnalysisSessionInput) {
   const profile = findSymbol(input.market, input.symbol);
   if (!profile) {
     throw new Error(`Unsupported symbol: ${input.market}/${input.symbol}`);

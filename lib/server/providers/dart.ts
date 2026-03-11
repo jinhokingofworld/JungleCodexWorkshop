@@ -1,4 +1,5 @@
 import type { EvidenceItem, SymbolProfile } from "@/lib/types";
+import { logApiEvent } from "@/lib/server/logging";
 
 const corpCodeBySymbol: Record<string, string> = {
   "005930": "00126380"
@@ -11,6 +12,16 @@ export async function fetchDartEvidence(
   const corpCode = corpCodeBySymbol[profile.symbol];
 
   if (!apiKey || profile.market !== "KR" || !corpCode) {
+    logApiEvent(
+      "dart",
+      "skipped",
+      {
+        symbol: profile.symbol,
+        market: profile.market,
+        reason: !apiKey ? "missing_api_key" : !corpCode ? "missing_corp_code" : "unsupported_market"
+      },
+      "warn"
+    );
     return [];
   }
 
@@ -29,26 +40,48 @@ export async function fetchDartEvidence(
   try {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) {
+      logApiEvent(
+        "dart",
+        "http_error",
+        { symbol: profile.symbol, status: response.status },
+        "warn"
+      );
       return [];
     }
 
     const payload = (await response.json()) as {
-      list?: Array<{ report_nm: string; rcept_dt: string; corp_name: string; flr_nm?: string }>;
+      list?: Array<{
+        report_nm: string;
+        rcept_dt: string;
+        corp_name: string;
+        flr_nm?: string;
+        rcept_no?: string;
+      }>;
     };
 
-    return (payload.list ?? []).map((item, index) => ({
+    const items = (payload.list ?? []).map((item, index) => ({
       id: `dart-${profile.symbol.toLowerCase()}-${index}`,
       source: "DART" as const,
       kind: "filing" as const,
       title: item.report_nm,
-      url: "https://opendart.fss.or.kr/",
+      url: item.rcept_no
+        ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${item.rcept_no}`
+        : "https://opendart.fss.or.kr/",
       timestamp: new Date(
         `${item.rcept_dt.slice(0, 4)}-${item.rcept_dt.slice(4, 6)}-${item.rcept_dt.slice(6, 8)}`
       ).toISOString(),
       snippet: `${item.corp_name} 관련 공시가 최근 30일 내 접수되었습니다.`,
       numericSnapshot: undefined
     }));
+
+    logApiEvent("dart", "success", {
+      symbol: profile.symbol,
+      count: items.length
+    });
+
+    return items;
   } catch {
+    logApiEvent("dart", "network_error", { symbol: profile.symbol }, "error");
     return [];
   }
 }

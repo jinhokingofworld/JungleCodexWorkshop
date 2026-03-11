@@ -17,13 +17,13 @@ npm install
 npm run dev
 ```
 
-`.env.local`은 `.env.example`을 복사해서 사용하면 됩니다. API 키가 없어도 mock fallback으로 기본 화면과 분석 플로우는 동작합니다.
+`.env` 또는 `.env.local`에 환경변수를 넣어 사용할 수 있습니다. API 키가 없어도 mock fallback으로 기본 화면과 분석 플로우는 동작합니다.
 
 ## 환경변수
 
 - `LLM_PROVIDER=mock`
 - `GUARD_MODE=off | monitor | enforce`
-- `ALPHA_VANTAGE_API_KEY`
+- `TWELVE_DATA_API_KEY`
 - `NAVER_CLIENT_ID`
 - `NAVER_CLIENT_SECRET`
 - `OPEN_DART_API_KEY`

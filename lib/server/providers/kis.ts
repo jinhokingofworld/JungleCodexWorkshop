@@ -1,4 +1,5 @@
 import type { EvidenceItem, SymbolProfile } from "@/lib/types";
+import { logApiEvent } from "@/lib/server/logging";
 
 interface KisTokenCache {
   accessToken: string;
@@ -7,6 +8,7 @@ interface KisTokenCache {
 
 const globalCache = globalThis as typeof globalThis & {
   __kisToken?: KisTokenCache;
+  __kisTokenRequest?: Promise<string | null>;
 };
 
 async function getKisAccessToken() {
@@ -14,6 +16,7 @@ async function getKisAccessToken() {
   const appSecret = process.env.KIS_APP_SECRET;
 
   if (!appKey || !appSecret) {
+    logApiEvent("kis", "skipped", { reason: "missing_credentials" }, "warn");
     return null;
   }
 
@@ -22,7 +25,11 @@ async function getKisAccessToken() {
     return cached.accessToken;
   }
 
-  try {
+  if (globalCache.__kisTokenRequest) {
+    return globalCache.__kisTokenRequest;
+  }
+
+  const request = (async () => {
     const response = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
       method: "POST",
       headers: {
@@ -36,6 +43,13 @@ async function getKisAccessToken() {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      logApiEvent(
+        "kis",
+        "token_http_error",
+        { status: response.status, errorText },
+        "warn"
+      );
       return null;
     }
 
@@ -45,8 +59,11 @@ async function getKisAccessToken() {
     };
 
     if (!payload.access_token) {
+      logApiEvent("kis", "token_missing", {}, "warn");
       return null;
     }
+
+    logApiEvent("kis", "token_success", {});
 
     globalCache.__kisToken = {
       accessToken: payload.access_token,
@@ -54,9 +71,17 @@ async function getKisAccessToken() {
     };
 
     return payload.access_token;
-  } catch {
-    return null;
-  }
+  })()
+    .catch(() => {
+      logApiEvent("kis", "token_network_error", {}, "error");
+      return null;
+    })
+    .finally(() => {
+      delete globalCache.__kisTokenRequest;
+    });
+
+  globalCache.__kisTokenRequest = request;
+  return request;
 }
 
 export async function fetchKisEvidence(
@@ -70,11 +95,23 @@ export async function fetchKisEvidence(
   const appSecret = process.env.KIS_APP_SECRET;
 
   if (!appKey || !appSecret) {
+    logApiEvent(
+      "kis",
+      "skipped",
+      { symbol: profile.symbol, reason: "missing_credentials" },
+      "warn"
+    );
     return null;
   }
 
   const accessToken = await getKisAccessToken();
   if (!accessToken) {
+    logApiEvent(
+      "kis",
+      "quote_skipped",
+      { symbol: profile.symbol, reason: "missing_access_token" },
+      "warn"
+    );
     return null;
   }
 
@@ -96,6 +133,13 @@ export async function fetchKisEvidence(
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      logApiEvent(
+        "kis",
+        "quote_http_error",
+        { symbol: profile.symbol, status: response.status, errorText },
+        "warn"
+      );
       return null;
     }
 
@@ -109,8 +153,15 @@ export async function fetchKisEvidence(
 
     const quote = payload.output;
     if (!quote) {
+      logApiEvent("kis", "quote_missing", { symbol: profile.symbol }, "warn");
       return null;
     }
+
+    logApiEvent("kis", "quote_success", {
+      symbol: profile.symbol,
+      price: quote.stck_prpr ?? null,
+      changePct: quote.prdy_ctrt ?? null
+    });
 
     return {
       id: `kis-${profile.symbol.toLowerCase()}`,
@@ -127,6 +178,7 @@ export async function fetchKisEvidence(
       }
     };
   } catch {
+    logApiEvent("kis", "quote_network_error", { symbol: profile.symbol }, "error");
     return null;
   }
 }

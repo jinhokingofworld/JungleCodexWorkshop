@@ -1,21 +1,29 @@
 import Link from "next/link";
 import { SearchBox } from "@/components/search-box";
 import { SessionCard } from "@/components/session-card";
-import { marketOverviewCatalog, symbolCatalog } from "@/lib/mock-data";
 import { prepareHomeData } from "@/lib/server/analysis-service";
+import {
+  buildHomeMarketOverviewMap,
+  loadHomeStocksFromDb
+} from "@/lib/server/home-stocks";
 import { formatCompactNumber, formatPrice, symbolPath } from "@/lib/server/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const { popular, recent } = await prepareHomeData();
+  const [{ popular, recent }, homeStocks] = await Promise.all([
+    prepareHomeData(),
+    loadHomeStocksFromDb()
+  ]);
+  const marketOverviews = buildHomeMarketOverviewMap(homeStocks);
+  const liveSymbols = homeStocks;
 
   return (
     <div className="container page-stack">
       <section className="hero">
         <div>
           <p className="eyebrow">공개형 주식 AI 토론</p>
-          <h1>전문가들이 토론한 뒤, 읽기 쉬운 결론만 남깁니다.</h1>
+          <h1>AI 전문가들의 토론을 보고<br></br>매수 매도 타이밍을 잡아보자</h1>
           <p className="hero-copy">
             시장 요약을 보고, 종목을 선택하고, AI 전문가들의 토론을 천천히 읽은 뒤 최종 리포트와 가격 구간
             가이드를 확인하세요.
@@ -45,25 +53,35 @@ export default async function HomePage() {
 
       <section className="section-grid two-up">
         {(["KR", "US"] as const).map((region) => {
-          const overview = marketOverviewCatalog[region];
+          const overview = marketOverviews[region];
           return (
             <section className="panel" key={region}>
               <div className="panel-header compact">
                 <div>
                   <p className="eyebrow">{region === "KR" ? "한국 시장" : "미국 시장"}</p>
-                  <h2>{region === "KR" ? "시장 대시보드" : "US Market Pulse"}</h2>
+                  <h2>{region === "KR" ? "실시간 추적 종목" : "Live Tracking Board"}</h2>
                 </div>
               </div>
-              <div className="index-grid">
-                {overview.indices.map((item) => (
-                  <article className="index-card" key={item.code}>
-                    <span className="timing-label">{item.label}</span>
-                    <strong>{item.value.toLocaleString("ko-KR")}</strong>
-                    <span className={item.changePct >= 0 ? "up" : "down"}>
-                      {item.changePct >= 0 ? "+" : ""}
-                      {item.changePct.toFixed(2)}%
-                    </span>
-                  </article>
+              <div className="card-grid">
+                {overview.movers.map((item) => (
+                  <Link
+                    className="session-card"
+                    href={symbolPath(item.market, item.symbol)}
+                    key={`${item.market}-${item.symbol}`}
+                  >
+                    <div className="session-card-top">
+                      <span className="pill">{item.exchange}</span>
+                      <span className={item.changePct >= 0 ? "up" : "down"}>
+                        {item.changePct >= 0 ? "+" : ""}
+                        {item.changePct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <h3>
+                      {item.name} · {item.symbol}
+                    </h3>
+                    <p className="session-summary">{formatPrice(item.price, item.currency)}</p>
+                    <p className="session-timing">{formatCompactNumber(item.volume)} 거래</p>
+                  </Link>
                 ))}
               </div>
               <div className="signal-list">
@@ -115,11 +133,11 @@ export default async function HomePage() {
         <div className="panel-header compact">
           <div>
             <p className="eyebrow">인기 종목</p>
-            <h2>바로 분석 시작</h2>
+            <h2>실시간 추적 종목</h2>
           </div>
         </div>
         <div className="symbol-grid">
-          {symbolCatalog.map((symbol) => (
+          {liveSymbols.map((symbol) => (
             <Link
               className="symbol-card"
               href={symbolPath(symbol.market, symbol.symbol)}
