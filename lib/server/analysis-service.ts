@@ -1,5 +1,10 @@
 import type { CreateAnalysisInput } from "@/lib/types";
 import {
+  listAvailablePersonas,
+  resolveSelectedPersonas,
+  toSelectedPersonaSummaries
+} from "@/lib/server/personas";
+import {
   createAnalysisSession,
   ensureSeedData,
   getSessionOrThrow,
@@ -18,10 +23,18 @@ export async function prepareHomeData() {
 }
 
 export async function createNewAnalysis(input: CreateAnalysisInput) {
+  const personas = await resolveSelectedPersonas(input.personaIds);
+
   return createAnalysisSession({
     ...input,
-    forceFresh: input.forceFresh ?? true
+    forceFresh: input.forceFresh ?? true,
+    personas,
+    selectedPersonas: toSelectedPersonaSummaries(personas)
   });
+}
+
+export async function listPersonas() {
+  return listAvailablePersonas();
 }
 
 export async function getAnalysisSession(id: string) {

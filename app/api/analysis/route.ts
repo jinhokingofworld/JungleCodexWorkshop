@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
     const session = await createNewAnalysis({
       market: payload.market,
       symbol: payload.symbol,
+      personaIds: payload.personaIds,
       userQuestion: payload.userQuestion,
       forceFresh: payload.forceFresh ?? true
     });

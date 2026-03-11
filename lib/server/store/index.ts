@@ -1,6 +1,8 @@
 import type {
   AnalysisSession,
   CreateAnalysisInput,
+  PersonaOption,
+  SelectedPersona,
   SessionPreview
 } from "@/lib/types";
 import {
@@ -9,13 +11,23 @@ import {
   getPersonasCollection,
   type DebateDocument
 } from "@/lib/server/db";
+import { findSymbol, symbolCatalog } from "@/lib/mock-data";
+import {
+  getDefaultPersonaIds,
+  resolveSelectedPersonas,
+  toSelectedPersonaSummaries
+} from "@/lib/server/personas";
 import { buildEvidenceBundle } from "@/lib/server/providers";
 import { generateStructuredAnalysis } from "@/lib/server/llm/provider";
-import { findSymbol, symbolCatalog } from "@/lib/mock-data";
 import { pickWatchwords, sentimentFromChange } from "@/lib/server/utils";
 
+interface CreateAnalysisSessionInput extends CreateAnalysisInput {
+  personas: PersonaOption[];
+  selectedPersonas: SelectedPersona[];
+}
+
 interface AnalysisStore {
-  createSession(input: CreateAnalysisInput): Promise<AnalysisSession>;
+  createSession(input: CreateAnalysisSessionInput): Promise<AnalysisSession>;
   getSession(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
   getRecent(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
   getPopular(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
@@ -50,74 +62,6 @@ function createPreview(session: AnalysisSession): SessionPreview {
       volume: 0
     })
   };
-}
-
-class MemoryAnalysisStore implements AnalysisStore {
-  private sessions = new Map<string, AnalysisSession>();
-
-  async createSession(input: CreateAnalysisInput) {
-    const session = await buildSession(input);
-
-    this.sessions.set(session.id, session);
-    return session;
-  }
-
-  getSession(id: string) {
-    return this.sessions.get(id) ?? null;
-  }
-
-  getRecent(limit = 8) {
-    return [...this.sessions.values()]
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, limit)
-      .map(createPreview);
-  }
-
-  getPopular(limit = 8) {
-    return [...this.sessions.values()]
-      .sort((a, b) => {
-        const scoreDelta = b.boardScore + b.replayCount * 3 - (a.boardScore + a.replayCount * 3);
-        if (scoreDelta !== 0) {
-          return scoreDelta;
-        }
-
-        return b.createdAt.localeCompare(a.createdAt);
-      })
-      .slice(0, limit)
-      .map(createPreview);
-  }
-
-  incrementReplayCount(id: string) {
-    const session = this.sessions.get(id);
-    if (!session) {
-      return null;
-    }
-
-    session.replayCount += 1;
-    this.sessions.set(id, session);
-    return session;
-  }
-
-  async seedIfNeeded() {
-    if (this.sessions.size > 0) {
-      return;
-    }
-
-    const defaults = symbolCatalog.filter((symbol) =>
-      ["005930", "000660", "NVDA", "TSLA"].includes(symbol.symbol)
-    );
-
-    for (const profile of defaults) {
-      const session = await this.createSession({
-        market: profile.market,
-        symbol: profile.symbol,
-        forceFresh: true
-      });
-
-      session.replayCount = Math.round(profile.volume / 1_000_000);
-      this.sessions.set(session.id, session);
-    }
-  }
 }
 
 function toDebateDocument(session: AnalysisSession): DebateDocument {
@@ -179,9 +123,13 @@ async function syncPersonas(session: AnalysisSession) {
   );
 }
 
-async function buildSession(input: CreateAnalysisInput) {
+async function buildSession(input: CreateAnalysisSessionInput) {
   const bundle = await buildEvidenceBundle(input.market, input.symbol);
-  const generated = await generateStructuredAnalysis(bundle, input.userQuestion);
+  const generated = await generateStructuredAnalysis(
+    bundle,
+    input.personas,
+    input.userQuestion
+  );
   const id = `${input.market.toLowerCase()}-${input.symbol.toLowerCase()}-${Date.now()}`;
 
   const boardScore =
@@ -198,6 +146,7 @@ async function buildSession(input: CreateAnalysisInput) {
     replayCount: 0,
     boardScore,
     optionalQuestion: input.userQuestion,
+    selectedPersonas: input.selectedPersonas,
     evidence: bundle.items,
     messages: generated.messages,
     timingCard: generated.timingCard,
@@ -211,8 +160,82 @@ async function buildSession(input: CreateAnalysisInput) {
   } satisfies AnalysisSession;
 }
 
+class MemoryAnalysisStore implements AnalysisStore {
+  private sessions = new Map<string, AnalysisSession>();
+
+  async createSession(input: CreateAnalysisSessionInput) {
+    const session = await buildSession(input);
+
+    this.sessions.set(session.id, session);
+    return session;
+  }
+
+  getSession(id: string) {
+    return this.sessions.get(id) ?? null;
+  }
+
+  getRecent(limit = 8) {
+    return [...this.sessions.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+      .map(createPreview);
+  }
+
+  getPopular(limit = 8) {
+    return [...this.sessions.values()]
+      .sort((a, b) => {
+        const scoreDelta = b.boardScore + b.replayCount * 3 - (a.boardScore + a.replayCount * 3);
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+
+        return b.createdAt.localeCompare(a.createdAt);
+      })
+      .slice(0, limit)
+      .map(createPreview);
+  }
+
+  incrementReplayCount(id: string) {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return null;
+    }
+
+    session.replayCount += 1;
+    this.sessions.set(id, session);
+    return session;
+  }
+
+  async seedIfNeeded() {
+    if (this.sessions.size > 0) {
+      return;
+    }
+
+    const defaultPersonaIds = await getDefaultPersonaIds();
+    const personas = await resolveSelectedPersonas(defaultPersonaIds);
+    const selectedPersonas = toSelectedPersonaSummaries(personas);
+    const defaults = symbolCatalog.filter((symbol) =>
+      ["005930", "000660", "NVDA", "TSLA"].includes(symbol.symbol)
+    );
+
+    for (const profile of defaults) {
+      const session = await this.createSession({
+        market: profile.market,
+        symbol: profile.symbol,
+        personaIds: defaultPersonaIds,
+        personas,
+        selectedPersonas,
+        forceFresh: true
+      });
+
+      session.replayCount = Math.round(profile.volume / 1_000_000);
+      this.sessions.set(session.id, session);
+    }
+  }
+}
+
 class MongoAnalysisStore implements AnalysisStore {
-  async createSession(input: CreateAnalysisInput) {
+  async createSession(input: CreateAnalysisSessionInput) {
     const session = await buildSession(input);
     const debates = await getDebatesCollection();
     await debates.updateOne(
@@ -287,6 +310,9 @@ class MongoAnalysisStore implements AnalysisStore {
       return;
     }
 
+    const defaultPersonaIds = await getDefaultPersonaIds();
+    const personas = await resolveSelectedPersonas(defaultPersonaIds);
+    const selectedPersonas = toSelectedPersonaSummaries(personas);
     const defaults = symbolCatalog.filter((symbol) =>
       ["005930", "000660", "NVDA", "TSLA"].includes(symbol.symbol)
     );
@@ -295,6 +321,9 @@ class MongoAnalysisStore implements AnalysisStore {
       const session = await this.createSession({
         market: profile.market,
         symbol: profile.symbol,
+        personaIds: defaultPersonaIds,
+        personas,
+        selectedPersonas,
         forceFresh: true
       });
 
@@ -337,7 +366,7 @@ export async function getSessionOrThrow(id: string) {
   return session;
 }
 
-export async function createAnalysisSession(input: CreateAnalysisInput) {
+export async function createAnalysisSession(input: CreateAnalysisSessionInput) {
   const profile = findSymbol(input.market, input.symbol);
   if (!profile) {
     throw new Error(`Unsupported symbol: ${input.market}/${input.symbol}`);
