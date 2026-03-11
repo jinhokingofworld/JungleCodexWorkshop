@@ -50,7 +50,13 @@ export async function fetchDartEvidence(
     }
 
     const payload = (await response.json()) as {
-      list?: Array<{ report_nm: string; rcept_dt: string; corp_name: string; flr_nm?: string }>;
+      list?: Array<{
+        report_nm: string;
+        rcept_dt: string;
+        corp_name: string;
+        flr_nm?: string;
+        rcept_no?: string;
+      }>;
     };
 
     const items = (payload.list ?? []).map((item, index) => ({
@@ -58,7 +64,9 @@ export async function fetchDartEvidence(
       source: "DART" as const,
       kind: "filing" as const,
       title: item.report_nm,
-      url: "https://opendart.fss.or.kr/",
+      url: item.rcept_no
+        ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${item.rcept_no}`
+        : "https://opendart.fss.or.kr/",
       timestamp: new Date(
         `${item.rcept_dt.slice(0, 4)}-${item.rcept_dt.slice(4, 6)}-${item.rcept_dt.slice(6, 8)}`
       ).toISOString(),

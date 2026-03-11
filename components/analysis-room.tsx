@@ -407,10 +407,24 @@ export function AnalysisRoom({
                     return null;
                   }
 
+                  const label = `${evidence.source} · ${evidence.title}`;
                   return (
-                    <span className="evidence-pill" key={evidence.id}>
-                      {evidence.source} · {evidence.title}
-                    </span>
+                    evidence.url ? (
+                      <a
+                        aria-label={`${label} 원문 열기`}
+                        className="evidence-pill evidence-link"
+                        href={evidence.url}
+                        key={evidence.id}
+                        rel="noreferrer noopener"
+                        target="_blank"
+                      >
+                        {label}
+                      </a>
+                    ) : (
+                      <span className="evidence-pill evidence-disabled" key={evidence.id}>
+                        {label}
+                      </span>
+                    )
                   );
                 })}
               </div>
@@ -486,7 +500,19 @@ export function AnalysisRoom({
                 {session.evidence.map((item) => (
                   <article className="evidence-card" key={item.id}>
                     <div className="session-card-top">
-                      <span className="pill">{item.source}</span>
+                      {item.url ? (
+                        <a
+                          aria-label={`${item.source} 출처 열기`}
+                          className="pill evidence-link-pill"
+                          href={item.url}
+                          rel="noreferrer noopener"
+                          target="_blank"
+                        >
+                          {item.source}
+                        </a>
+                      ) : (
+                        <span className="pill">{item.source}</span>
+                      )}
                       <span className="muted">
                         {new Date(item.timestamp).toLocaleString("ko-KR", {
                           month: "numeric",
@@ -496,7 +522,19 @@ export function AnalysisRoom({
                         })}
                       </span>
                     </div>
-                    <strong>{item.title}</strong>
+                    {item.url ? (
+                      <a
+                        aria-label={`${item.title} 원문 열기`}
+                        className="evidence-title-link"
+                        href={item.url}
+                        rel="noreferrer noopener"
+                        target="_blank"
+                      >
+                        <strong>{item.title}</strong>
+                      </a>
+                    ) : (
+                      <strong>{item.title}</strong>
+                    )}
                     <p>{item.snippet}</p>
                   </article>
                 ))}

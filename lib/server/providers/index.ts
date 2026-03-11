@@ -6,6 +6,25 @@ import { fetchNaverNewsEvidence } from "@/lib/server/providers/naver";
 import { fetchTwelveDataEvidence } from "@/lib/server/providers/twelve-data";
 import { logApiEvent } from "@/lib/server/logging";
 
+function getFallbackSourceUrl(market: Market, symbol: string, symbolName: string, source: EvidenceItem["source"]) {
+  switch (source) {
+    case "KIS":
+      return "https://apiportal.koreainvestment.com/";
+    case "TwelveData":
+      return `https://twelvedata.com/symbols/${encodeURIComponent(symbol)}`;
+    case "NAVER":
+      return market === "KR"
+        ? `https://finance.naver.com/item/main.naver?code=${encodeURIComponent(symbol)}`
+        : `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(`${symbolName} ${symbol} 주식`)}`;
+    case "DART":
+      return "https://opendart.fss.or.kr/";
+    case "MockMacro":
+      return "https://fred.stlouisfed.org/";
+    default:
+      return null;
+  }
+}
+
 function mergeLiveMarketSnapshot(
   profile: ReturnType<typeof findSymbol>,
   marketEvidence: EvidenceItem | null
@@ -46,7 +65,12 @@ function makeFallbackEvidence(market: Market, symbol: string): EvidenceItem[] {
       source: profile.market === "KR" ? "KIS" : "TwelveData",
       kind: "price",
       title: `${profile.name} ${prefix} 시세 스냅샷`,
-      url: null,
+      url: getFallbackSourceUrl(
+        profile.market,
+        profile.symbol,
+        profile.name,
+        profile.market === "KR" ? "KIS" : "TwelveData"
+      ),
       timestamp: new Date().toISOString(),
       snippet: `${priceDirection} 흐름 속에서 ${profile.price}${profile.currency === "KRW" ? "원" : "달러"} 부근이 핵심 가격대입니다.`,
       numericSnapshot: {
@@ -60,7 +84,7 @@ function makeFallbackEvidence(market: Market, symbol: string): EvidenceItem[] {
       source: "NAVER",
       kind: "news",
       title: `${profile.name} 관련 시장 반응`,
-      url: null,
+      url: getFallbackSourceUrl(profile.market, profile.symbol, profile.name, "NAVER"),
       timestamp: new Date().toISOString(),
       snippet: `${profile.sector} 업종 내 수급과 심리가 종목 변동성에 직접 연결되는 상황으로 정리됩니다.`
     },
@@ -69,7 +93,12 @@ function makeFallbackEvidence(market: Market, symbol: string): EvidenceItem[] {
       source: profile.market === "KR" ? "DART" : "MockMacro",
       kind: profile.market === "KR" ? "filing" : "macro",
       title: profile.market === "KR" ? `${profile.name} 공시 체크포인트` : `${profile.name} 거시 체크포인트`,
-      url: null,
+      url: getFallbackSourceUrl(
+        profile.market,
+        profile.symbol,
+        profile.name,
+        profile.market === "KR" ? "DART" : "MockMacro"
+      ),
       timestamp: new Date().toISOString(),
       snippet:
         profile.market === "KR"

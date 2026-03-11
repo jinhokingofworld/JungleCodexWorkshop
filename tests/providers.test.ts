@@ -8,6 +8,7 @@ describe("evidence bundle", () => {
     expect(bundle.symbol.name).toBe("삼성전자");
     expect(bundle.items.length).toBeGreaterThanOrEqual(3);
     expect(bundle.items.some((item) => item.kind === "price")).toBe(true);
+    expect(bundle.items.every((item) => Boolean(item.url))).toBe(true);
   });
 
   it("returns fallback-backed evidence for US symbols without API keys", async () => {
@@ -15,5 +16,6 @@ describe("evidence bundle", () => {
 
     expect(bundle.symbol.name).toBe("Tesla");
     expect(bundle.items.some((item) => item.source === "TwelveData")).toBe(true);
+    expect(bundle.items.every((item) => Boolean(item.url))).toBe(true);
   });
 });

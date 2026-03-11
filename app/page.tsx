@@ -23,7 +23,7 @@ export default async function HomePage() {
       <section className="hero">
         <div>
           <p className="eyebrow">공개형 주식 AI 토론</p>
-          <h1>전문가들이 토론한 뒤, 읽기 쉬운 결론만 남깁니다.</h1>
+          <h1>AI 전문가들의 토론을 보고<br></br>매수 매도 타이밍을 잡아보자</h1>
           <p className="hero-copy">
             시장 요약을 보고, 종목을 선택하고, AI 전문가들의 토론을 천천히 읽은 뒤 최종 리포트와 가격 구간
             가이드를 확인하세요.
