@@ -1,0 +1,91 @@
+import type { ExpertRole, Market, Sentiment, SymbolProfile } from "@/lib/types";
+
+export function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function formatPrice(value: number, currency: string) {
+  return new Intl.NumberFormat("ko-KR", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: currency === "KRW" ? 0 : 2
+  }).format(value);
+}
+
+export function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("ko-KR", {
+    notation: "compact",
+    maximumFractionDigits: 1
+  }).format(value);
+}
+
+export function roleLabel(role: ExpertRole) {
+  switch (role) {
+    case "host":
+      return "진행자";
+    case "krAnalyst":
+      return "한국 투자전문가";
+    case "globalAnalyst":
+      return "글로벌 투자전문가";
+    case "macroEconomist":
+      return "거시경제학자";
+  }
+}
+
+export function roleAccent(role: ExpertRole) {
+  switch (role) {
+    case "host":
+      return "#1e293b";
+    case "krAnalyst":
+      return "#2563eb";
+    case "globalAnalyst":
+      return "#0f766e";
+    case "macroEconomist":
+      return "#b45309";
+  }
+}
+
+export function stanceLabel(stance: Sentiment) {
+  switch (stance) {
+    case "bullish":
+      return "긍정";
+    case "neutral":
+      return "중립";
+    case "bearish":
+      return "보수";
+  }
+}
+
+export function symbolPath(market: Market, symbol: string) {
+  return `/stocks/${market.toLowerCase()}/${symbol.toLowerCase()}`;
+}
+
+export function pickWatchwords(profile: SymbolProfile) {
+  const sectorTags =
+    profile.market === "KR"
+      ? ["수급", "공시", profile.sector]
+      : ["실적", "금리", profile.sector];
+  return sectorTags.slice(0, 3);
+}
+
+export function sentimentFromChange(changePct: number): Sentiment {
+  if (changePct >= 1.2) {
+    return "bullish";
+  }
+
+  if (changePct <= -1.0) {
+    return "bearish";
+  }
+
+  return "neutral";
+}
+
+export function seededNumber(seed: string, min: number, max: number) {
+  const hash = Array.from(seed).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const ratio = (Math.sin(hash) + 1) / 2;
+  return min + (max - min) * ratio;
+}
+
+export function isoMinutesFromNow(minutes: number) {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
