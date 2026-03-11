@@ -128,6 +128,11 @@ input {
   letter-spacing: -0.05em;
 }
 
+.hero-title {
+  font-size: clamp(1.8rem, 3vw, 2.9rem) !important;
+  line-height: 1.12;
+}
+
 .hero-copy {
   margin: 0;
   max-width: 720px;
@@ -255,6 +260,15 @@ input {
   border-bottom: 1px solid var(--line);
 }
 
+.mini-session-card {
+  gap: 12px;
+}
+
+.mini-session-card a {
+  display: grid;
+  gap: 4px;
+}
+
 .mini-session:last-child {
   border-bottom: none;
 }
@@ -375,6 +389,21 @@ input {
 .session-card {
   display: grid;
   gap: 12px;
+}
+
+.session-like-row,
+.detail-like-row,
+.leaderboard-item,
+.leaderboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-like-row,
+.detail-like-row {
+  flex-wrap: wrap;
 }
 
 .session-card h3 {
@@ -752,6 +781,157 @@ input {
   background: rgba(225, 29, 72, 0.08);
 }
 
+.persona-leaderboard {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.leaderboard-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.leaderboard-list.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.leaderboard-item {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.leaderboard-item.compact {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-areas:
+    "rank name"
+    "count action";
+  align-items: center;
+  gap: 6px 8px;
+  min-height: 68px;
+  padding: 8px;
+  border-radius: 14px;
+  border-width: 1px;
+}
+
+.leaderboard-rank {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(49, 130, 246, 0.1);
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.leaderboard-rank.compact {
+  grid-area: rank;
+  width: 22px;
+  height: 22px;
+  font-size: 0.75rem;
+}
+
+.leaderboard-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.leaderboard-name {
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.83rem;
+  line-height: 1.2;
+}
+
+.leaderboard-count {
+  grid-area: count;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.leaderboard-item.compact.krAnalyst {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+.leaderboard-item.compact.globalAnalyst {
+  background: rgba(15, 118, 110, 0.08);
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
+.leaderboard-item.compact.macroEconomist {
+  background: rgba(180, 83, 9, 0.08);
+  border-color: rgba(180, 83, 9, 0.18);
+}
+
+.leaderboard-item.compact.valueInvestor {
+  background: rgba(79, 70, 229, 0.08);
+  border-color: rgba(79, 70, 229, 0.18);
+}
+
+.leaderboard-item.compact.growthStrategist {
+  background: rgba(219, 39, 119, 0.08);
+  border-color: rgba(219, 39, 119, 0.18);
+}
+
+.leaderboard-item.compact.technicalAnalyst {
+  background: rgba(8, 145, 178, 0.08);
+  border-color: rgba(8, 145, 178, 0.18);
+}
+
+.leaderboard-item.compact.quantAnalyst {
+  background: rgba(124, 58, 237, 0.08);
+  border-color: rgba(124, 58, 237, 0.18);
+}
+
+.leaderboard-item.compact.riskManager {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.18);
+}
+
+.like-button {
+  border: 1px solid rgba(49, 130, 246, 0.18);
+  background: white;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.like-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.like-button.compact {
+  grid-area: action;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  min-width: 62px;
+  justify-self: end;
+}
+
+.like-button.liked,
+.like-button:disabled {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
 .empty-state {
   display: grid;
   gap: 12px;
@@ -901,5 +1081,9 @@ input {
     left: 0;
     right: auto;
     width: min(100%, calc(100vw - 40px));
+  }
+
+  .leaderboard-list.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

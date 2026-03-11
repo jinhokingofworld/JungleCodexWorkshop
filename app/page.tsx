@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { DebateLikeHeroList } from "@/components/debate-like-hero-list";
+import { PersonaLikeLeaderboard } from "@/components/persona-like-leaderboard";
 import { SearchBox } from "@/components/search-box";
 import { SessionCard } from "@/components/session-card";
 import { prepareHomeData } from "@/lib/server/analysis-service";
@@ -11,10 +13,8 @@ import { formatCompactNumber, formatPrice, symbolPath } from "@/lib/server/utils
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [{ popular, recent }, homeStocks] = await Promise.all([
-    prepareHomeData(),
-    loadHomeStocksFromDb()
-  ]);
+  const [{ debateLikeLeaderboard, personaLeaderboard, popular, recent }, homeStocks] =
+    await Promise.all([prepareHomeData(), loadHomeStocksFromDb()]);
   const marketOverviews = buildHomeMarketOverviewMap(homeStocks);
   const liveSymbols = homeStocks;
 
@@ -22,32 +22,30 @@ export default async function HomePage() {
     <div className="container page-stack">
       <section className="hero">
         <div>
-          <p className="eyebrow">공개형 주식 AI 토론</p>
-          <h1>AI 전문가들의 토론을 보고<br></br>매수 매도 타이밍을 잡아보자</h1>
+          <p className="eyebrow">public stock AI debate</p>
+          <h1 className="hero-title">
+            AI 전문가들의 토론을 보고
+            <br />
+            매수 타이밍을 빠르게 판단해보세요
+          </h1>
           <p className="hero-copy">
-            시장 요약을 보고, 종목을 선택하고, AI 전문가들의 토론을 천천히 읽은 뒤 최종 리포트와 가격 구간
-            가이드를 확인하세요.
+            시장 요약과 종목 흐름을 확인하고, 여러 페르소나의 토론 결과와 최종 리포트까지
+            한 번에 살펴볼 수 있습니다.
           </p>
           <SearchBox />
           <div className="hero-actions">
             <Link className="primary-button" href="/debates">
-              공개 게시판 보기
+              공개 토론 보러가기
             </Link>
             <Link className="secondary-button" href={symbolPath("KR", "005930")}>
               삼성전자 바로 분석
             </Link>
           </div>
+          <PersonaLikeLeaderboard initialPersonas={personaLeaderboard} />
         </div>
+
         <div className="hero-panel">
-          <span className="mini-pill">오늘의 인기 분석</span>
-          {popular.slice(0, 3).map((item) => (
-            <Link className="mini-session" href={`/debates/${item.id}`} key={item.id}>
-              <strong>
-                {item.symbolName} · {item.symbol}
-              </strong>
-              <span>{item.overallView}</span>
-            </Link>
-          ))}
+          <DebateLikeHeroList sessions={debateLikeLeaderboard} />
         </div>
       </section>
 
@@ -58,7 +56,7 @@ export default async function HomePage() {
             <section className="panel" key={region}>
               <div className="panel-header compact">
                 <div>
-                  <p className="eyebrow">{region === "KR" ? "한국 시장" : "미국 시장"}</p>
+                  <p className="eyebrow">{region === "KR" ? "국내 시장" : "미국 시장"}</p>
                   <h2>{region === "KR" ? "실시간 추적 종목" : "Live Tracking Board"}</h2>
                 </div>
               </div>
