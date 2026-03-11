@@ -1,4 +1,5 @@
 import type { EvidenceItem, SymbolProfile } from "@/lib/types";
+import { logApiEvent } from "@/lib/server/logging";
 
 function stripHtml(value: string) {
   return value.replace(/<[^>]+>/g, "");
@@ -11,6 +12,12 @@ export async function fetchNaverNewsEvidence(
   const clientSecret = process.env.NAVER_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
+    logApiEvent(
+      "naver",
+      "skipped",
+      { symbol: profile.symbol, reason: "missing_client_credentials" },
+      "warn"
+    );
     return [];
   }
 
@@ -29,6 +36,12 @@ export async function fetchNaverNewsEvidence(
     });
 
     if (!response.ok) {
+      logApiEvent(
+        "naver",
+        "http_error",
+        { symbol: profile.symbol, status: response.status },
+        "warn"
+      );
       return [];
     }
 
@@ -36,7 +49,7 @@ export async function fetchNaverNewsEvidence(
       items?: Array<{ title: string; description: string; originallink?: string; pubDate: string }>;
     };
 
-    return (payload.items ?? []).map((item, index) => ({
+    const items = (payload.items ?? []).map((item, index) => ({
       id: `naver-${profile.symbol.toLowerCase()}-${index}`,
       source: "NAVER" as const,
       kind: "news" as const,
@@ -46,7 +59,15 @@ export async function fetchNaverNewsEvidence(
       snippet: stripHtml(item.description),
       numericSnapshot: undefined
     }));
+
+    logApiEvent("naver", "success", {
+      symbol: profile.symbol,
+      count: items.length
+    });
+
+    return items;
   } catch {
+    logApiEvent("naver", "network_error", { symbol: profile.symbol }, "error");
     return [];
   }
 }

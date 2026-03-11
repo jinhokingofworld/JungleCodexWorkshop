@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { AnalysisRoom } from "@/components/analysis-room";
-import { findSymbol } from "@/lib/mock-data";
+import { getLiveSymbolProfile } from "@/lib/server/market-data";
 import { formatCompactNumber, formatPrice } from "@/lib/server/utils";
 import type { Market } from "@/lib/types";
 
@@ -29,7 +29,7 @@ export default async function StockPage({
     notFound();
   }
 
-  const profile = findSymbol(market, symbol.toUpperCase());
+  const profile = await getLiveSymbolProfile(market, symbol.toUpperCase());
   if (!profile) {
     notFound();
   }
