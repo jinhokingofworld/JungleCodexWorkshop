@@ -8,7 +8,6 @@ import type {
 import {
   canUseMongo,
   getDebatesCollection,
-  getPersonasCollection,
   type DebateDocument
 } from "@/lib/server/db";
 import { findSymbol, symbolCatalog } from "@/lib/mock-data";
@@ -31,7 +30,10 @@ interface AnalysisStore {
   getSession(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
   getRecent(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
   getPopular(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
+  getTopLiked(limit?: number): Promise<SessionPreview[]> | SessionPreview[];
   incrementReplayCount(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
+  incrementLike(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
+  decrementLike(id: string): Promise<AnalysisSession | null> | AnalysisSession | null;
   seedIfNeeded(): Promise<void>;
 }
 
@@ -46,6 +48,7 @@ function createPreview(session: AnalysisSession): SessionPreview {
     symbol: session.symbol,
     symbolName: session.symbolName,
     createdAt: session.createdAt,
+    likes: session.likes,
     replayCount: session.replayCount,
     boardScore: session.boardScore,
     overallView: session.finalReport.overallView,
@@ -85,42 +88,11 @@ function toDebateDocument(session: AnalysisSession): DebateDocument {
     contents: session.finalReport.overallView,
     keyword: keywords.join(", "),
     create_at: new Date(session.createdAt),
-    likes: 0,
+    likes: session.likes,
     replay_count: session.replayCount,
     board_score: session.boardScore,
     session
   };
-}
-
-async function syncPersonas(session: AnalysisSession) {
-  if (!canUseMongo()) {
-    return;
-  }
-
-  const personas = await getPersonasCollection();
-  const uniqueNames = [...new Set(session.messages.map((message) => message.speaker))];
-  if (uniqueNames.length === 0) {
-    return;
-  }
-
-  await personas.bulkWrite(
-    uniqueNames.map((name) => ({
-      updateOne: {
-        filter: { _id: name },
-        update: {
-          $setOnInsert: {
-            _id: name,
-            object_id: name,
-            name
-          },
-          $inc: {
-            count: 1
-          }
-        },
-        upsert: true
-      }
-    }))
-  );
 }
 
 async function buildSession(input: CreateAnalysisSessionInput) {
@@ -143,6 +115,7 @@ async function buildSession(input: CreateAnalysisSessionInput) {
     symbol: bundle.symbol.symbol,
     symbolName: bundle.symbol.name,
     createdAt: new Date().toISOString(),
+    likes: 0,
     replayCount: 0,
     boardScore,
     optionalQuestion: input.userQuestion,
@@ -195,6 +168,13 @@ class MemoryAnalysisStore implements AnalysisStore {
       .map(createPreview);
   }
 
+  getTopLiked(limit = 8) {
+    return [...this.sessions.values()]
+      .sort((a, b) => b.likes - a.likes || b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+      .map(createPreview);
+  }
+
   incrementReplayCount(id: string) {
     const session = this.sessions.get(id);
     if (!session) {
@@ -202,6 +182,28 @@ class MemoryAnalysisStore implements AnalysisStore {
     }
 
     session.replayCount += 1;
+    this.sessions.set(id, session);
+    return session;
+  }
+
+  incrementLike(id: string) {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return null;
+    }
+
+    session.likes += 1;
+    this.sessions.set(id, session);
+    return session;
+  }
+
+  decrementLike(id: string) {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return null;
+    }
+
+    session.likes = Math.max(0, session.likes - 1);
     this.sessions.set(id, session);
     return session;
   }
@@ -243,14 +245,18 @@ class MongoAnalysisStore implements AnalysisStore {
       { $set: toDebateDocument(session) },
       { upsert: true }
     );
-    await syncPersonas(session);
     return session;
   }
 
   async getSession(id: string) {
     const debates = await getDebatesCollection();
     const document = await debates.findOne({ _id: id });
-    return document?.session ?? null;
+    return document
+      ? {
+          ...document.session,
+          likes: document.session.likes ?? document.likes
+        }
+      : null;
   }
 
   async getRecent(limit = 8) {
@@ -260,7 +266,14 @@ class MongoAnalysisStore implements AnalysisStore {
       .sort({ create_at: -1 })
       .limit(limit)
       .toArray()
-      .then((documents) => documents.map((document) => createPreview(document.session)));
+      .then((documents) =>
+        documents.map((document) =>
+          createPreview({
+            ...document.session,
+            likes: document.session.likes ?? document.likes
+          })
+        )
+      );
   }
 
   async getPopular(limit = 8) {
@@ -284,7 +297,24 @@ class MongoAnalysisStore implements AnalysisStore {
       ])
       .toArray();
 
-    return documents.map((document) => createPreview(document.session));
+    return documents.map((document) =>
+      createPreview({
+        ...document.session,
+        likes: document.session.likes ?? document.likes
+      })
+    );
+  }
+
+  async getTopLiked(limit = 8) {
+    const debates = await getDebatesCollection();
+    const documents = await debates.find({}).sort({ likes: -1, create_at: -1 }).limit(limit).toArray();
+
+    return documents.map((document) =>
+      createPreview({
+        ...document.session,
+        likes: document.session.likes ?? document.likes
+      })
+    );
   }
 
   async incrementReplayCount(id: string) {
@@ -300,7 +330,56 @@ class MongoAnalysisStore implements AnalysisStore {
     );
 
     const document = await debates.findOne({ _id: id });
-    return document?.session ?? null;
+    return document
+      ? {
+          ...document.session,
+          likes: document.session.likes ?? document.likes
+        }
+      : null;
+  }
+
+  async incrementLike(id: string) {
+    const debates = await getDebatesCollection();
+    await debates.updateOne(
+      { _id: id },
+      {
+        $inc: {
+          likes: 1,
+          "session.likes": 1
+        }
+      }
+    );
+
+    const document = await debates.findOne({ _id: id });
+    return document
+      ? {
+          ...document.session,
+          likes: document.session.likes ?? document.likes
+        }
+      : null;
+  }
+
+  async decrementLike(id: string) {
+    const debates = await getDebatesCollection();
+    await debates.updateOne(
+      { _id: id },
+      [
+        {
+          $set: {
+            likes: { $max: [0, { $subtract: ["$likes", 1] }] },
+            "session.likes": { $max: [0, { $subtract: ["$session.likes", 1] }] }
+          }
+        }
+      ]
+    );
+
+    const document = await debates.findOne({ _id: id });
+    return document
+      ? {
+          ...document.session,
+          likes: document.session.likes ?? document.likes
+        }
+      : null;
   }
 
   async seedIfNeeded() {
@@ -385,7 +464,22 @@ export async function listPopularSessions(limit?: number) {
   return analysisStore.getPopular(limit);
 }
 
+export async function listTopLikedSessions(limit?: number) {
+  await ensureSeedData();
+  return analysisStore.getTopLiked(limit);
+}
+
 export async function incrementSessionReplay(id: string) {
   await ensureSeedData();
   return analysisStore.incrementReplayCount(id);
+}
+
+export async function incrementSessionLike(id: string) {
+  await ensureSeedData();
+  return analysisStore.incrementLike(id);
+}
+
+export async function decrementSessionLike(id: string) {
+  await ensureSeedData();
+  return analysisStore.decrementLike(id);
 }

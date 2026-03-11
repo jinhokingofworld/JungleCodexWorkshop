@@ -121,6 +121,7 @@ export interface AnalysisSession {
   symbol: string;
   symbolName: string;
   createdAt: string;
+  likes: number;
   replayCount: number;
   boardScore: number;
   optionalQuestion?: string;
@@ -157,6 +158,7 @@ export interface SessionPreview {
   symbol: string;
   symbolName: string;
   createdAt: string;
+  likes: number;
   replayCount: number;
   boardScore: number;
   overallView: string;

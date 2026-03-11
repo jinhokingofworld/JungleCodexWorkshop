@@ -13,6 +13,11 @@ export async function listAvailablePersonas() {
   return records.map(personaOptionFromRecord);
 }
 
+export async function listTopPersonasByLikes(limit = 8) {
+  const records = await personaRepository.listTopByLikes(limit);
+  return records.map(personaOptionFromRecord);
+}
+
 export async function getDefaultPersonaIds() {
   const records = await personaRepository.list();
   return getDefaultPersonaIdsFromRecords(records);
@@ -45,6 +50,16 @@ export function toSelectedPersonaSummaries(personas: PersonaOption[]): SelectedP
     name,
     label
   }));
+}
+
+export async function likePersona(id: string) {
+  const record = await personaRepository.incrementLike(id);
+  return record ? personaOptionFromRecord(record) : null;
+}
+
+export async function unlikePersona(id: string) {
+  const record = await personaRepository.decrementLike(id);
+  return record ? personaOptionFromRecord(record) : null;
 }
 
 export { MIN_SELECTED_PERSONAS, MAX_SELECTED_PERSONAS };
