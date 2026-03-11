@@ -198,6 +198,14 @@ interface LLMClient {
   generate(bundle: EvidenceBundle, userQuestion?: string): Promise<GeneratedAnalysis>;
 }
 
+interface OpenAIChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+}
+
 class MockLLMClient implements LLMClient {
   async generate(bundle: EvidenceBundle): Promise<GeneratedAnalysis> {
     return {
@@ -208,16 +216,228 @@ class MockLLMClient implements LLMClient {
   }
 }
 
-class PlaceholderRemoteLLMClient implements LLMClient {
-  async generate(bundle: EvidenceBundle): Promise<GeneratedAnalysis> {
-    return new MockLLMClient().generate(bundle);
+const outputSchema = {
+  name: "stock_debate_analysis",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      messages: {
+        type: "array",
+        minItems: 8,
+        maxItems: 10,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            role: {
+              type: "string",
+              enum: ["host", "krAnalyst", "globalAnalyst", "macroEconomist"]
+            },
+            speaker: { type: "string" },
+            stance: {
+              type: "string",
+              enum: ["bullish", "neutral", "bearish"]
+            },
+            confidence: { type: "number" },
+            text: { type: "string" },
+            evidenceIds: {
+              type: "array",
+              minItems: 1,
+              items: { type: "string" }
+            }
+          },
+          required: ["role", "speaker", "stance", "confidence", "text", "evidenceIds"]
+        }
+      },
+      timingCard: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          summary: { type: "string" },
+          buyZone: { $ref: "#/$defs/timingSignal" },
+          chaseWarning: { $ref: "#/$defs/timingSignal" },
+          trimZone: { $ref: "#/$defs/timingSignal" },
+          riskLine: { $ref: "#/$defs/timingSignal" },
+          validUntil: { type: "string" }
+        },
+        required: [
+          "summary",
+          "buyZone",
+          "chaseWarning",
+          "trimZone",
+          "riskLine",
+          "validUntil"
+        ]
+      },
+      finalReport: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          overallView: { type: "string" },
+          bullCase: { type: "string" },
+          bearCase: { type: "string" },
+          risks: { type: "array", items: { type: "string" } },
+          watchPoints: { type: "array", items: { type: "string" } },
+          disclaimer: { type: "string" }
+        },
+        required: [
+          "overallView",
+          "bullCase",
+          "bearCase",
+          "risks",
+          "watchPoints",
+          "disclaimer"
+        ]
+      }
+    },
+    required: ["messages", "timingCard", "finalReport"],
+    $defs: {
+      timingSignal: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: { type: "string" },
+          priceText: { type: "string" },
+          reason: { type: "string" },
+          tone: {
+            type: "string",
+            enum: ["positive", "caution", "risk"]
+          }
+        },
+        required: ["label", "priceText", "reason", "tone"]
+      }
+    }
+  }
+} as const;
+
+function toJsonText(
+  content: string | Array<{ type?: string; text?: string }> | undefined
+) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .filter((item) => item.type === "text" && typeof item.text === "string")
+      .map((item) => item.text)
+      .join("");
+  }
+
+  return "";
+}
+
+function buildPrompt(bundle: EvidenceBundle, userQuestion?: string) {
+  const evidenceText = bundle.items
+    .map(
+      (item) =>
+        `- ${item.id} | ${item.source} | ${item.kind} | ${item.title} | ${item.snippet}`
+    )
+    .join("\n");
+
+  return [
+    "다음 주식 데이터를 보고 공개 서비스용 분석 결과를 JSON 스키마에 맞춰 생성하세요.",
+    "출력은 반드시 한국어여야 합니다.",
+    "메시지는 8~10개여야 합니다.",
+    "각 메시지는 2~3문장 이하여야 합니다.",
+    "전문가 역할은 host, krAnalyst, globalAnalyst, macroEconomist 중 하나만 사용하세요.",
+    "evidenceIds는 아래 제공된 id만 사용하세요.",
+    "직접적인 투자 권유 표현은 피하고 참고용 분석 톤을 유지하세요.",
+    `종목: ${bundle.symbol.name} (${bundle.symbol.symbol})`,
+    `시장: ${bundle.symbol.market}`,
+    `현재가: ${bundle.symbol.price}`,
+    `등락률: ${bundle.symbol.changePct}%`,
+    `섹터: ${bundle.symbol.sector}`,
+    userQuestion ? `사용자 질문: ${userQuestion}` : "사용자 질문: 없음",
+    "근거 데이터:",
+    evidenceText
+  ].join("\n");
+}
+
+function normalizeGeneratedAnalysis(
+  payload: GeneratedAnalysis,
+  bundle: EvidenceBundle
+) {
+  return {
+    messages: payload.messages.map((message, index) => ({
+      ...message,
+      speaker: roleLabel(message.role),
+      id: `${bundle.symbol.market.toLowerCase()}-${bundle.symbol.symbol.toLowerCase()}-${index + 1}`,
+      turn: index + 1,
+      emittedAt: new Date(Date.now() + index * 1_000).toISOString()
+    })),
+    timingCard: payload.timingCard,
+    finalReport: payload.finalReport
+  };
+}
+
+class OpenAILLMClient implements LLMClient {
+  async generate(
+    bundle: EvidenceBundle,
+    userQuestion?: string
+  ): Promise<GeneratedAnalysis> {
+    const apiKey = process.env.LLM_API_KEY;
+    if (!apiKey) {
+      throw new Error("LLM_API_KEY is missing");
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: appConfig.llmModel,
+        temperature: 0.7,
+        response_format: {
+          type: "json_schema",
+          json_schema: outputSchema
+        },
+        messages: [
+          {
+            role: "system",
+            content:
+              "너는 공개형 주식 분석 서비스의 AI 편집팀이다. 반드시 JSON 스키마에 맞춰 응답하고, 한국어로만 작성한다."
+          },
+          {
+            role: "user",
+            content: buildPrompt(bundle, userQuestion)
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI request failed: ${response.status} ${errorText}`);
+    }
+
+    const payload = (await response.json()) as OpenAIChatCompletionResponse;
+    const rawText = toJsonText(payload.choices?.[0]?.message?.content);
+    if (!rawText) {
+      throw new Error("OpenAI returned empty content");
+    }
+
+    return normalizeGeneratedAnalysis(
+      JSON.parse(rawText) as GeneratedAnalysis,
+      bundle
+    );
   }
 }
 
 function createClient(): LLMClient {
-  return appConfig.llmProvider === "mock"
-    ? new MockLLMClient()
-    : new PlaceholderRemoteLLMClient();
+  if (appConfig.llmProvider === "mock") {
+    return new MockLLMClient();
+  }
+
+  if (appConfig.llmProvider === "openai") {
+    return new OpenAILLMClient();
+  }
+
+  return new MockLLMClient();
 }
 
 export async function generateStructuredAnalysis(
@@ -225,5 +445,10 @@ export async function generateStructuredAnalysis(
   userQuestion?: string
 ) {
   const client = createClient();
-  return client.generate(bundle, userQuestion);
+  try {
+    return await client.generate(bundle, userQuestion);
+  } catch (error) {
+    console.warn("[llm] falling back to mock output", error);
+    return new MockLLMClient().generate(bundle);
+  }
 }

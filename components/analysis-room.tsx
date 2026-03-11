@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { AnalysisSession, DebateMessage, Market } from "@/lib/types";
+import { roleLabel } from "@/lib/server/utils";
 
 interface AnalysisRoomProps {
   market: Market;
@@ -165,7 +166,7 @@ export function AnalysisRoom({
             <article className="message-card" key={message.id}>
               <div className="message-meta">
                 <div>
-                  <span className={`speaker-badge ${message.role}`}>{message.speaker}</span>
+                  <span className={`speaker-badge ${message.role}`}>{roleLabel(message.role)}</span>
                   <span className="message-stance">{message.stance}</span>
                 </div>
                 <span className="muted">확신도 {(message.confidence * 100).toFixed(0)}%</span>

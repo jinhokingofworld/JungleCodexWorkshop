@@ -24,11 +24,11 @@ export function roleLabel(role: ExpertRole) {
     case "host":
       return "진행자";
     case "krAnalyst":
-      return "한국 투자전문가";
+      return "한국투자전문가";
     case "globalAnalyst":
       return "글로벌 투자전문가";
     case "macroEconomist":
-      return "거시경제학자";
+      return "경제학자";
   }
 }
 
