@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { SearchBox } from "@/components/search-box";
 import { SessionCard } from "@/components/session-card";
-import { marketOverviewCatalog, symbolCatalog } from "@/lib/mock-data";
 import { prepareHomeData } from "@/lib/server/analysis-service";
+import {
+  buildMarketOverviewMap,
+  listLiveSymbolProfiles
+} from "@/lib/server/market-data";
 import { formatCompactNumber, formatPrice, symbolPath } from "@/lib/server/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const { popular, recent } = await prepareHomeData();
+  const [{ popular, recent }, marketOverviews, liveSymbols] = await Promise.all([
+    prepareHomeData(),
+    buildMarketOverviewMap(),
+    listLiveSymbolProfiles()
+  ]);
 
   return (
     <div className="container page-stack">
@@ -45,25 +52,35 @@ export default async function HomePage() {
 
       <section className="section-grid two-up">
         {(["KR", "US"] as const).map((region) => {
-          const overview = marketOverviewCatalog[region];
+          const overview = marketOverviews[region];
           return (
             <section className="panel" key={region}>
               <div className="panel-header compact">
                 <div>
                   <p className="eyebrow">{region === "KR" ? "한국 시장" : "미국 시장"}</p>
-                  <h2>{region === "KR" ? "시장 대시보드" : "US Market Pulse"}</h2>
+                  <h2>{region === "KR" ? "실시간 추적 종목" : "Live Tracking Board"}</h2>
                 </div>
               </div>
-              <div className="index-grid">
-                {overview.indices.map((item) => (
-                  <article className="index-card" key={item.code}>
-                    <span className="timing-label">{item.label}</span>
-                    <strong>{item.value.toLocaleString("ko-KR")}</strong>
-                    <span className={item.changePct >= 0 ? "up" : "down"}>
-                      {item.changePct >= 0 ? "+" : ""}
-                      {item.changePct.toFixed(2)}%
-                    </span>
-                  </article>
+              <div className="card-grid">
+                {overview.movers.map((item) => (
+                  <Link
+                    className="session-card"
+                    href={symbolPath(item.market, item.symbol)}
+                    key={`${item.market}-${item.symbol}`}
+                  >
+                    <div className="session-card-top">
+                      <span className="pill">{item.exchange}</span>
+                      <span className={item.changePct >= 0 ? "up" : "down"}>
+                        {item.changePct >= 0 ? "+" : ""}
+                        {item.changePct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <h3>
+                      {item.name} · {item.symbol}
+                    </h3>
+                    <p className="session-summary">{formatPrice(item.price, item.currency)}</p>
+                    <p className="session-timing">{formatCompactNumber(item.volume)} 거래</p>
+                  </Link>
                 ))}
               </div>
               <div className="signal-list">
@@ -115,11 +132,11 @@ export default async function HomePage() {
         <div className="panel-header compact">
           <div>
             <p className="eyebrow">인기 종목</p>
-            <h2>바로 분석 시작</h2>
+            <h2>실시간 추적 종목</h2>
           </div>
         </div>
         <div className="symbol-grid">
-          {symbolCatalog.map((symbol) => (
+          {liveSymbols.map((symbol) => (
             <Link
               className="symbol-card"
               href={symbolPath(symbol.market, symbol.symbol)}

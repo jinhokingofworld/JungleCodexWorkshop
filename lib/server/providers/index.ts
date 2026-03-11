@@ -4,6 +4,7 @@ import { fetchAlphaVantageEvidence } from "@/lib/server/providers/alpha-vantage"
 import { fetchDartEvidence } from "@/lib/server/providers/dart";
 import { fetchKisEvidence } from "@/lib/server/providers/kis";
 import { fetchNaverNewsEvidence } from "@/lib/server/providers/naver";
+import { logApiEvent } from "@/lib/server/logging";
 
 function makeFallbackEvidence(market: Market, symbol: string): EvidenceItem[] {
   const profile = findSymbol(market, symbol);
@@ -73,6 +74,22 @@ export async function buildEvidenceBundle(
   const liveEvidence = [marketEvidence, ...newsEvidence, ...filingEvidence].filter(
     Boolean
   ) as EvidenceItem[];
+
+  if (liveEvidence.length > 0) {
+    logApiEvent("evidence", "live_bundle", {
+      market,
+      symbol,
+      count: liveEvidence.length,
+      ids: liveEvidence.map((item) => item.id)
+    });
+  } else {
+    logApiEvent(
+      "evidence",
+      "fallback_bundle",
+      { market, symbol },
+      "warn"
+    );
+  }
 
   return {
     symbol: profile,

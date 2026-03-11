@@ -12,6 +12,7 @@ import {
   roleLabel,
   sentimentFromChange
 } from "@/lib/server/utils";
+import { logApiEvent } from "@/lib/server/logging";
 
 export interface GeneratedAnalysis {
   messages: DebateMessage[];
@@ -380,6 +381,7 @@ class OpenAILLMClient implements LLMClient {
   ): Promise<GeneratedAnalysis> {
     const apiKey = process.env.LLM_API_KEY;
     if (!apiKey) {
+      logApiEvent("openai", "missing_api_key", {}, "warn");
       throw new Error("LLM_API_KEY is missing");
     }
 
@@ -412,14 +414,26 @@ class OpenAILLMClient implements LLMClient {
 
     if (!response.ok) {
       const errorText = await response.text();
+      logApiEvent(
+        "openai",
+        "http_error",
+        { status: response.status, errorText },
+        "warn"
+      );
       throw new Error(`OpenAI request failed: ${response.status} ${errorText}`);
     }
 
     const payload = (await response.json()) as OpenAIChatCompletionResponse;
     const rawText = toJsonText(payload.choices?.[0]?.message?.content);
     if (!rawText) {
+      logApiEvent("openai", "empty_content", {}, "warn");
       throw new Error("OpenAI returned empty content");
     }
+
+    logApiEvent("openai", "success", {
+      model: appConfig.llmModel,
+      contentLength: rawText.length
+    });
 
     return normalizeGeneratedAnalysis(
       JSON.parse(rawText) as GeneratedAnalysis,
@@ -448,7 +462,15 @@ export async function generateStructuredAnalysis(
   try {
     return await client.generate(bundle, userQuestion);
   } catch (error) {
-    console.warn("[llm] falling back to mock output", error);
+    logApiEvent(
+      "openai",
+      "fallback_to_mock",
+      {
+        model: appConfig.llmModel,
+        message: error instanceof Error ? error.message : "unknown_error"
+      },
+      "warn"
+    );
     return new MockLLMClient().generate(bundle);
   }
 }

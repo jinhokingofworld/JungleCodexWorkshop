@@ -1,4 +1,5 @@
 import type { EvidenceItem, SymbolProfile } from "@/lib/types";
+import { logApiEvent } from "@/lib/server/logging";
 
 export async function fetchAlphaVantageEvidence(
   profile: SymbolProfile
@@ -6,6 +7,12 @@ export async function fetchAlphaVantageEvidence(
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 
   if (!apiKey || profile.market !== "US") {
+    logApiEvent(
+      "alphavantage",
+      "skipped",
+      { market: profile.market, symbol: profile.symbol, reason: "missing_api_key_or_market" },
+      "warn"
+    );
     return null;
   }
 
@@ -17,6 +24,12 @@ export async function fetchAlphaVantageEvidence(
   try {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) {
+      logApiEvent(
+        "alphavantage",
+        "http_error",
+        { symbol: profile.symbol, status: response.status },
+        "warn"
+      );
       return null;
     }
 
@@ -26,8 +39,20 @@ export async function fetchAlphaVantageEvidence(
 
     const quote = payload["Global Quote"];
     if (!quote) {
+      logApiEvent(
+        "alphavantage",
+        "empty_quote",
+        { symbol: profile.symbol },
+        "warn"
+      );
       return null;
     }
+
+    logApiEvent("alphavantage", "success", {
+      symbol: profile.symbol,
+      price: quote["05. price"] ?? null,
+      changePct: quote["10. change percent"] ?? null
+    });
 
     return {
       id: `alpha-${profile.symbol.toLowerCase()}`,
@@ -46,6 +71,12 @@ export async function fetchAlphaVantageEvidence(
       }
     };
   } catch {
+    logApiEvent(
+      "alphavantage",
+      "network_error",
+      { symbol: profile.symbol },
+      "error"
+    );
     return null;
   }
 }
