@@ -288,7 +288,7 @@ export function AnalysisRoom({
               <div className="analysis-actions">
                 <div className="persona-popover-shell" ref={popoverRef}>
                   <button
-                    className="secondary-button"
+                    className="secondary-button persona-trigger"
                     disabled={isPersonaLoading || Boolean(personaError)}
                     onClick={() => setIsPopoverOpen((current) => !current)}
                     type="button"
