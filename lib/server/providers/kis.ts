@@ -8,6 +8,7 @@ interface KisTokenCache {
 
 const globalCache = globalThis as typeof globalThis & {
   __kisToken?: KisTokenCache;
+  __kisTokenRequest?: Promise<string | null>;
 };
 
 async function getKisAccessToken() {
@@ -24,7 +25,11 @@ async function getKisAccessToken() {
     return cached.accessToken;
   }
 
-  try {
+  if (globalCache.__kisTokenRequest) {
+    return globalCache.__kisTokenRequest;
+  }
+
+  const request = (async () => {
     const response = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
       method: "POST",
       headers: {
@@ -38,7 +43,13 @@ async function getKisAccessToken() {
     });
 
     if (!response.ok) {
-      logApiEvent("kis", "token_http_error", { status: response.status }, "warn");
+      const errorText = await response.text();
+      logApiEvent(
+        "kis",
+        "token_http_error",
+        { status: response.status, errorText },
+        "warn"
+      );
       return null;
     }
 
@@ -60,10 +71,17 @@ async function getKisAccessToken() {
     };
 
     return payload.access_token;
-  } catch {
-    logApiEvent("kis", "token_network_error", {}, "error");
-    return null;
-  }
+  })()
+    .catch(() => {
+      logApiEvent("kis", "token_network_error", {}, "error");
+      return null;
+    })
+    .finally(() => {
+      delete globalCache.__kisTokenRequest;
+    });
+
+  globalCache.__kisTokenRequest = request;
+  return request;
 }
 
 export async function fetchKisEvidence(
@@ -115,10 +133,11 @@ export async function fetchKisEvidence(
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
       logApiEvent(
         "kis",
         "quote_http_error",
-        { symbol: profile.symbol, status: response.status },
+        { symbol: profile.symbol, status: response.status, errorText },
         "warn"
       );
       return null;

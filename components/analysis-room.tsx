@@ -25,7 +25,7 @@ export function AnalysisRoom({
   const [isPending, startTransition] = useTransition();
   const [session, setSession] = useState<AnalysisSession | null>(initialSession);
   const [messages, setMessages] = useState<DebateMessage[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(!initialSession);
   const [showReport, setShowReport] = useState(Boolean(initialSession));
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +116,7 @@ export function AnalysisRoom({
     });
 
     eventSource.onerror = () => {
+      setShowReport(true);
       setIsStreaming(false);
       eventSource.close();
     };

@@ -6,6 +6,31 @@ import { fetchKisEvidence } from "@/lib/server/providers/kis";
 import { fetchNaverNewsEvidence } from "@/lib/server/providers/naver";
 import { logApiEvent } from "@/lib/server/logging";
 
+function mergeLiveMarketSnapshot(
+  profile: ReturnType<typeof findSymbol>,
+  marketEvidence: EvidenceItem | null
+) {
+  if (!profile || !marketEvidence?.numericSnapshot) {
+    return profile;
+  }
+
+  return {
+    ...profile,
+    price:
+      typeof marketEvidence.numericSnapshot.price === "number"
+        ? marketEvidence.numericSnapshot.price
+        : profile.price,
+    changePct:
+      typeof marketEvidence.numericSnapshot.changePct === "number"
+        ? marketEvidence.numericSnapshot.changePct
+        : profile.changePct,
+    volume:
+      typeof marketEvidence.numericSnapshot.volume === "number"
+        ? marketEvidence.numericSnapshot.volume
+        : profile.volume
+  };
+}
+
 function makeFallbackEvidence(market: Market, symbol: string): EvidenceItem[] {
   const profile = findSymbol(market, symbol);
   if (!profile) {
@@ -74,6 +99,7 @@ export async function buildEvidenceBundle(
   const liveEvidence = [marketEvidence, ...newsEvidence, ...filingEvidence].filter(
     Boolean
   ) as EvidenceItem[];
+  const resolvedProfile = mergeLiveMarketSnapshot(profile, marketEvidence);
 
   if (liveEvidence.length > 0) {
     logApiEvent("evidence", "live_bundle", {
@@ -92,7 +118,7 @@ export async function buildEvidenceBundle(
   }
 
   return {
-    symbol: profile,
+    symbol: resolvedProfile ?? profile,
     items: liveEvidence.length > 0 ? liveEvidence : makeFallbackEvidence(market, symbol)
   };
 }

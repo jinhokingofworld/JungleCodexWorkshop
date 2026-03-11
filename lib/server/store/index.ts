@@ -167,7 +167,6 @@ export async function getSessionOrThrow(id: string) {
 }
 
 export async function createAnalysisSession(input: CreateAnalysisInput) {
-  await ensureSeedData();
   const profile = findSymbol(input.market, input.symbol);
   if (!profile) {
     throw new Error(`Unsupported symbol: ${input.market}/${input.symbol}`);

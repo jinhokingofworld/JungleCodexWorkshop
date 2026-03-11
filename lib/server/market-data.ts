@@ -5,6 +5,7 @@ import { logApiEvent } from "@/lib/server/logging";
 import type { Market, MarketOverview, SymbolProfile } from "@/lib/types";
 
 const SYMBOL_CACHE_TTL_MS = 60_000;
+const FALLBACK_CACHE_TTL_MS = 5_000;
 
 interface CachedValue<T> {
   expiresAt: number;
@@ -149,7 +150,10 @@ export async function getLiveSymbolProfile(
   const request = resolveLiveSymbolProfile(baseProfile)
     .then((profile) => {
       cache.set(cacheKey, {
-        expiresAt: Date.now() + SYMBOL_CACHE_TTL_MS,
+        expiresAt:
+          profile === baseProfile
+            ? Date.now() + FALLBACK_CACHE_TTL_MS
+            : Date.now() + SYMBOL_CACHE_TTL_MS,
         value: profile
       });
       return profile;
