@@ -108,6 +108,7 @@ export interface TimingCard {
 
 export interface FinalReport {
   overallView: string;
+  questionAnswer?: string;
   bullCase: string;
   bearCase: string;
   risks: string[];
