@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DebateLikeButton } from "@/components/debate-like-button";
 import type { SessionPreview } from "@/lib/types";
 import { symbolPath } from "@/lib/server/utils";
 
@@ -32,12 +33,16 @@ export function SessionCard({ session }: SessionCardProps) {
           </span>
         ))}
       </div>
+      <div className="session-like-row">
+        <span className="muted">{session.likes} likes</span>
+        <DebateLikeButton compact debateId={session.id} initialLikes={session.likes} />
+      </div>
       <div className="session-card-actions">
         <Link className="ghost-button" href={`/debates/${session.id}`}>
           토론 다시보기
         </Link>
         <Link className="ghost-button" href={symbolPath(session.market, session.symbol)}>
-          새 분석
+          종목 분석
         </Link>
       </div>
     </article>

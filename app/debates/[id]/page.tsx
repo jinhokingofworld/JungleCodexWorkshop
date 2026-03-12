@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DebateLikeButton } from "@/components/debate-like-button";
 import { AnalysisRoom } from "@/components/analysis-room";
 import { getAnalysisSession } from "@/lib/server/analysis-service";
 import { symbolPath } from "@/lib/server/utils";
@@ -24,9 +25,13 @@ export default async function DebateDetailPage({
               {session.symbolName} · {session.symbol}
             </h1>
             <p className="hero-copy">{session.finalReport.overallView}</p>
+            <div className="detail-like-row">
+              <span className="muted">{session.likes} likes</span>
+              <DebateLikeButton debateId={session.id} initialLikes={session.likes} />
+            </div>
           </div>
           <Link className="secondary-button" href={symbolPath(session.market, session.symbol)}>
-            같은 종목 새 분석
+            같은 종목 분석
           </Link>
         </section>
 

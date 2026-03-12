@@ -144,10 +144,74 @@ function confidenceForPersona(name: PersonaName, round: 1 | 2) {
   return Math.max(0.64, Math.min(0.88, base[name] - (round === 2 ? 0.02 : 0)));
 }
 
+interface QuestionContext {
+  summary: string;
+  keywordText: string;
+  openingLine: string;
+  globalPrompt: string;
+  macroPrompt: string;
+  finalAnswer: string;
+}
+
+function normalizeQuestion(userQuestion?: string) {
+  return userQuestion?.replace(/\s+/g, " ").trim().replace(/[?!.]+$/u, "") ?? "";
+}
+
+function trimQuestionToken(token: string) {
+  return token
+    .replace(/[^0-9A-Za-z가-힣]/gu, "")
+    .replace(/(있을지도|생각해줘|봐줘|알려줘|해주세요|해줘|어떨까|있는지|인지|일지)$/u, "")
+    .replace(/(으로|에게|에서|부터|까지|라고|이라|가|이|은|는|을|를|와|과|도|로|의|에)$/u, "");
+}
+
+function extractQuestionKeywords(userQuestion?: string) {
+  const normalized = normalizeQuestion(userQuestion);
+  if (!normalized) {
+    return [];
+  }
+
+  const stopwords = new Set(["이번", "질문", "토론", "분석", "기준", "포인트", "관련"]);
+
+  return normalized
+    .split(/\s+/)
+    .map(trimQuestionToken)
+    .filter((token) => token.length >= 2 && !stopwords.has(token))
+    .filter((token, index, tokens) => tokens.indexOf(token) === index)
+    .slice(0, 3);
+}
+
+function buildQuestionContext(bundle: EvidenceBundle, userQuestion?: string): QuestionContext | null {
+  const summary = normalizeQuestion(userQuestion);
+  if (!summary) {
+    return null;
+  }
+
+  const keywordText = extractQuestionKeywords(summary).join(" · ") || summary;
+  const isGeopolitical = /전쟁|지정학|분쟁|충돌|제재|관세|중동|러시아|우크라|대만/u.test(summary);
+
+  return {
+    summary,
+    keywordText,
+    openingLine: isGeopolitical
+      ? `특히 "${summary}" 질문을 기준으로 지정학 변수, 공급망, 환율 영향까지 함께 보겠습니다.`
+      : `특히 "${summary}" 질문을 기준으로 직접 영향과 간접 파급 경로를 함께 보겠습니다.`,
+    globalPrompt: isGeopolitical
+      ? `${keywordText} 이슈가 커지면 글로벌 반도체 밸류체인과 위험자산 선호가 함께 흔들릴 수 있습니다.`
+      : `${keywordText} 질문은 해외 피어 밸류에이션과 투자심리가 어떻게 연결되는지까지 확인해야 합니다.`,
+    macroPrompt: isGeopolitical
+      ? `${keywordText} 변수는 환율, 에너지 가격, 정책 불확실성을 통해 할인율에 간접 반영될 가능성이 큽니다.`
+      : `${keywordText} 질문은 금리, 환율, 정책 이벤트 같은 거시 채널을 통해 실제 가격에 반영되는지 봐야 합니다.`,
+    finalAnswer: isGeopolitical
+      ? `${bundle.symbol.name}과 ${keywordText}의 연결은 직접 전쟁 수혜나 피해보다 환율, 공급망, 메모리 수요 기대, 외국인 위험회피 심리를 통한 간접 영향이 더 큽니다. 따라서 관련 뉴스가 커질 때는 지정학 제목 자체보다 실적 가이던스, 수급, 환율이 같이 흔들리는지 확인하는 편이 더 중요합니다.`
+      : `"${summary}" 질문에 답하면, ${bundle.symbol.name}은 해당 이슈가 실적, 수급, 밸류에이션 중 어느 경로로 실제 반영되는지까지 확인해야 판단 정확도가 올라갑니다. 단일 뉴스보다 공시, 가격 흐름, 거래량이 같이 움직이는지 보는 편이 좋습니다.`
+  };
+}
+
 function buildPersonaText(
   persona: PersonaOption,
   bundle: EvidenceBundle,
-  round: 1 | 2
+  round: 1 | 2,
+  questionContext: QuestionContext | null = null
 ) {
   const { symbol } = bundle;
   const evidence = selectEvidence(bundle);
@@ -168,21 +232,21 @@ function buildPersonaText(
     case "globalAnalyst":
       return round === 1
         ? {
-            text: `${evidence.news.snippet} 해외 피어와 비교하면 지금은 과열 추격보다 상대 밸류에이션 확인 구간에 가깝습니다. 달러 강세와 외국인 흐름도 같이 봐야 합니다.`,
+            text: `${questionContext ? `${questionContext.globalPrompt} ` : ""}${evidence.news.snippet} 해외 피어와 비교하면 지금은 과열 추격보다 상대 밸류에이션 확인 구간에 가깝습니다. 달러 강세와 외국인 흐름도 같이 봐야 합니다.`,
             evidenceIds: [evidence.news.id]
           }
         : {
-            text: `같은 섹터의 글로벌 리더가 강한 멀티플을 유지한다면 상단 재평가도 가능합니다. 다만 해외 기술주 변동성이 커지면 국내외 모두 할인율이 빠르게 올라갈 수 있습니다.`,
+            text: `${questionContext ? `${questionContext.keywordText} 기준으로 보면 글로벌 투자심리와 반도체 멀티플이 동시에 흔들릴 수 있습니다. ` : ""}같은 섹터의 글로벌 리더가 강한 멀티플을 유지한다면 상단 재평가도 가능합니다. 다만 해외 기술주 변동성이 커지면 국내외 모두 할인율이 빠르게 올라갈 수 있습니다.`,
             evidenceIds: [evidence.news.id, evidence.macro.id]
           };
     case "macroEconomist":
       return round === 1
         ? {
-            text: `${evidence.macro.snippet} 금리와 환율이 동시에 흔들리면 개별 종목의 좋은 재료도 할인될 수 있습니다. 이번 토론에서는 거시 변수 확인이 먼저입니다.`,
+            text: `${questionContext ? `${questionContext.macroPrompt} ` : ""}${evidence.macro.snippet} 금리와 환율이 동시에 흔들리면 개별 종목의 좋은 재료도 할인될 수 있습니다. 이번 토론에서는 거시 변수 확인이 먼저입니다.`,
             evidenceIds: [evidence.macro.id]
           }
         : {
-            text: `유동성 환경이 안정적이면 현재 변동성은 흡수될 수 있지만, 정책 이벤트 전후에는 보수적인 비중 조절이 필요합니다. 매크로 노이즈가 커질수록 진입 타이밍은 뒤로 미루는 편이 낫습니다.`,
+            text: `${questionContext ? `${questionContext.keywordText} 관련 노이즈가 커질수록 환율과 정책 이벤트를 먼저 봐야 합니다. ` : ""}유동성 환경이 안정적이면 현재 변동성은 흡수될 수 있지만, 정책 이벤트 전후에는 보수적인 비중 조절이 필요합니다. 매크로 노이즈가 커질수록 진입 타이밍은 뒤로 미루는 편이 낫습니다.`,
             evidenceIds: [evidence.macro.id]
           };
     case "valueInvestor":
@@ -237,22 +301,30 @@ function buildPersonaText(
           };
   }
 }
-
-function createMockMessages(bundle: EvidenceBundle, personas: PersonaOption[]): DebateMessage[] {
+function createMockMessages(
+  bundle: EvidenceBundle,
+  personas: PersonaOption[],
+  userQuestion?: string
+): DebateMessage[] {
   const baseStance = sentimentFromChange(bundle.symbol.changePct);
   const openingEvidence = selectEvidence(bundle);
   const personaLabels = personas.map((persona) => persona.label).join(", ");
+  const questionContext = buildQuestionContext(bundle, userQuestion);
 
   const drafts: MessageDraft[] = [
     {
       role: "host",
       stance: "neutral",
       confidence: 0.78,
-      text: `${bundle.symbol.name}의 토론을 시작하겠습니다. 오늘은 ${personaLabels} 조합으로 가격, 수급, 거시 변수, 리스크를 나눠서 점검하겠습니다.`,
-      evidenceIds: [openingEvidence.price.id]
+      text: questionContext
+        ? `${bundle.symbol.name}의 토론을 시작하겠습니다. 오늘은 ${personaLabels} 조합으로 가격, 수급, 거시 변수, 리스크를 나눠서 점검하겠습니다. ${questionContext.openingLine}`
+        : `${bundle.symbol.name}의 토론을 시작하겠습니다. 오늘은 ${personaLabels} 조합으로 가격, 수급, 거시 변수, 리스크를 나눠서 점검하겠습니다.`,
+      evidenceIds: questionContext
+        ? [openingEvidence.price.id, openingEvidence.news.id, openingEvidence.macro.id]
+        : [openingEvidence.price.id]
     },
     ...personas.map((persona) => {
-      const commentary = buildPersonaText(persona, bundle, 1);
+      const commentary = buildPersonaText(persona, bundle, 1, questionContext);
 
       return {
         role: persona.name,
@@ -263,7 +335,7 @@ function createMockMessages(bundle: EvidenceBundle, personas: PersonaOption[]): 
       } satisfies MessageDraft;
     }),
     ...personas.map((persona) => {
-      const commentary = buildPersonaText(persona, bundle, 2);
+      const commentary = buildPersonaText(persona, bundle, 2, questionContext);
 
       return {
         role: persona.name,
@@ -277,7 +349,9 @@ function createMockMessages(bundle: EvidenceBundle, personas: PersonaOption[]): 
       role: "host",
       stance: "neutral",
       confidence: 0.82,
-      text: `정리하면 ${stanceSummary(baseStance)} 오늘 결론은 추격보다 근거를 확인하며 구간 대응하는 접근이 적절하다는 쪽에 가깝습니다.`,
+      text: questionContext
+        ? `정리하면 ${stanceSummary(baseStance)} 질문 기준으로는 ${questionContext.finalAnswer}`
+        : `정리하면 ${stanceSummary(baseStance)} 오늘 결론은 추격보다 근거를 확인하며 구간 대응하는 접근이 적절하다는 쪽에 가깝습니다.`,
       evidenceIds: [openingEvidence.price.id, openingEvidence.news.id, openingEvidence.macro.id]
     }
   ];
@@ -294,7 +368,6 @@ function createMockMessages(bundle: EvidenceBundle, personas: PersonaOption[]): 
     emittedAt: new Date(Date.now() + index * 1_000).toISOString()
   }));
 }
-
 function createTimingCard(bundle: EvidenceBundle): TimingCard {
   const { symbol } = bundle;
   const currency = symbol.market === "KR" ? "KRW" : "USD";
@@ -332,9 +405,10 @@ function createTimingCard(bundle: EvidenceBundle): TimingCard {
   };
 }
 
-function createFinalReport(bundle: EvidenceBundle): FinalReport {
+function createFinalReport(bundle: EvidenceBundle, userQuestion?: string): FinalReport {
   const { symbol } = bundle;
   const stance = sentimentFromChange(symbol.changePct);
+  const questionContext = buildQuestionContext(bundle, userQuestion);
 
   return {
     overallView:
@@ -343,6 +417,7 @@ function createFinalReport(bundle: EvidenceBundle): FinalReport {
         : stance === "bearish"
           ? `${symbol.name}은 단기 변동성이 큰 편이라 성급한 진입보다 확인 후 대응이 필요합니다.`
           : `${symbol.name}은 방향성이 아직 완전히 열리지 않아 구간 대응과 체크포인트 점검이 우선입니다.`,
+    questionAnswer: questionContext?.finalAnswer,
     bullCase:
       "수급 개선, 피어 밸류에이션 확장, 추가 뉴스 또는 공시가 이어지면 단기 재평가 구간이 열릴 수 있습니다.",
     bearCase:
@@ -361,7 +436,6 @@ function createFinalReport(bundle: EvidenceBundle): FinalReport {
       "이 정보는 참고용 분석이며 특정 종목의 매수 또는 매도를 권유하지 않습니다."
   };
 }
-
 function createOutputSchema(personas: PersonaOption[]) {
   const allowedRoles = ["host", ...personas.map((persona) => persona.name)];
   const expectedMessageCount = personas.length * 2 + 2;
@@ -426,6 +500,7 @@ function createOutputSchema(personas: PersonaOption[]) {
           additionalProperties: false,
           properties: {
             overallView: { type: "string" },
+            questionAnswer: { type: "string" },
             bullCase: { type: "string" },
             bearCase: { type: "string" },
             risks: { type: "array", items: { type: "string" } },
@@ -462,7 +537,6 @@ function createOutputSchema(personas: PersonaOption[]) {
     }
   } as const;
 }
-
 function toJsonText(
   content: string | Array<{ type?: string; text?: string }> | undefined
 ) {
@@ -499,6 +573,19 @@ function buildPrompt(bundle: EvidenceBundle, personas: PersonaOption[], userQues
     " -> "
   );
 
+  const questionInstructions = userQuestion
+    ? [
+        `User question: ${normalizeQuestion(userQuestion)}`,
+        "The host opening message must briefly restate or summarize the user question in Korean.",
+        "If globalAnalyst is selected, every globalAnalyst message must directly address the user question and mention at least one keyword from it.",
+        "If macroEconomist is selected, every macroEconomist message must directly address the user question and mention at least one keyword from it.",
+        "When a user question exists, finalReport.questionAnswer must directly answer that question in 2-3 Korean sentences."
+      ]
+    : [
+        "User question: none",
+        "When there is no user question, omit finalReport.questionAnswer."
+      ];
+
   return [
     "Return JSON only and write every natural-language field in Korean.",
     "Use the selected personas to generate a stock debate plus timing card and final report.",
@@ -513,14 +600,13 @@ function buildPrompt(bundle: EvidenceBundle, personas: PersonaOption[], userQues
     `Current price: ${bundle.symbol.price}`,
     `Change pct: ${bundle.symbol.changePct}%`,
     `Sector: ${bundle.symbol.sector}`,
-    userQuestion ? `User question: ${userQuestion}` : "User question: none",
+    ...questionInstructions,
     "Selected personas:",
     personaText,
     "Evidence:",
     evidenceText
   ].join("\n");
 }
-
 function normalizeGeneratedAnalysis(
   payload: GeneratedAnalysis,
   bundle: EvidenceBundle
@@ -539,15 +625,18 @@ function normalizeGeneratedAnalysis(
 }
 
 class MockLLMClient implements LLMClient {
-  async generate(bundle: EvidenceBundle, personas: PersonaOption[]): Promise<GeneratedAnalysis> {
+  async generate(
+    bundle: EvidenceBundle,
+    personas: PersonaOption[],
+    userQuestion?: string
+  ): Promise<GeneratedAnalysis> {
     return {
-      messages: createMockMessages(bundle, personas),
+      messages: createMockMessages(bundle, personas, userQuestion),
       timingCard: createTimingCard(bundle),
-      finalReport: createFinalReport(bundle)
+      finalReport: createFinalReport(bundle, userQuestion)
     };
   }
 }
-
 class OpenAILLMClient implements LLMClient {
   async generate(
     bundle: EvidenceBundle,
@@ -649,6 +738,6 @@ export async function generateStructuredAnalysis(
       "warn"
     );
 
-    return new MockLLMClient().generate(bundle, personas);
+    return new MockLLMClient().generate(bundle, personas, userQuestion);
   }
 }
